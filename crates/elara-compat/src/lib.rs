@@ -11,6 +11,7 @@
 //! [Smithay]: https://github.com/Smithay/smithay
 
 pub mod backend;
+pub mod desktop;
 pub mod input;
 // ELARA: copied Smithay files are excluded from rustfmt and clippy so they stay verbatim.
 #[rustfmt::skip]
@@ -18,3 +19,4 @@ pub mod input;
 pub mod output;
 pub mod reexports;
 pub mod utils;
+pub mod wayland;

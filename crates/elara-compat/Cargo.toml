@@ -17,6 +17,7 @@ name = "smithay"
 [dependencies]
 # No-op unless a profiler backend feature is enabled; used by the copied Smithay output code.
 profiling = "1.0.13"
+rustix = { version = "1.0.7", features = ["time"] }
 thiserror = "2.0.12"
 tracing.workspace = true
 xkeysym = "0.2.1"
