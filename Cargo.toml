@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/elara",
+]
+
+[workspace.package]
+version = "0.1.0"
+description = "A scrollable-tiling window manager for macOS, ported from niri"
+authors = ["IzzyBoop", "Ivan Molodetskikh <yalterz@gmail.com>"]
+license = "GPL-3.0-or-later"
+edition = "2021"
+rust-version = "1.85"
+
+[profile.release]
+debug = "line-tables-only"
+overflow-checks = true
+lto = "thin"
