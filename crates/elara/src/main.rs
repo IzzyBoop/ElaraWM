@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use elara::config;
 use niri_config::Config;
 
 const USAGE: &str = "\
@@ -40,28 +41,41 @@ fn parse_args() -> Result<Option<Args>, String> {
     Ok(Some(Args { config }))
 }
 
-/// Loads the config, falling back to niri's built-in default when there is no file.
-fn load_config(explicit: Option<PathBuf>) -> Result<Config, String> {
-    let path = match explicit {
-        Some(path) => path,
-        None => {
-            let Some(home) = std::env::var_os("HOME") else {
-                return Ok(Config::load_default());
-            };
-            let path = PathBuf::from(home).join(".config/elara/config.kdl");
-            if !path.exists() {
-                tracing::info!(
-                    "no config at {}, using the built-in default",
-                    path.display()
-                );
-                return Ok(Config::load_default());
-            }
-            path
+/// Loads the config and says which file to watch for changes.
+///
+/// A path given on the command line must exist. The default path is created with the default
+/// config if it does not.
+fn load_config(explicit: Option<PathBuf>) -> Result<(Config, Option<PathBuf>), String> {
+    let (config, path) = match explicit {
+        Some(path) => {
+            tracing::info!("loading config from {}", path.display());
+            (config::load(&path)?, Some(path))
         }
+        None => match config::default_path() {
+            Some(path) => {
+                let (config, created) = config::load_or_create(&path)?;
+                if created {
+                    tracing::info!("created a default config at {}", path.display());
+                } else {
+                    tracing::info!("loaded config from {}", path.display());
+                }
+                (config, Some(path))
+            }
+            None => {
+                tracing::warn!("HOME is not set; using the built-in default config");
+                (config::default_config(), None)
+            }
+        },
     };
 
-    tracing::info!("loading config from {}", path.display());
-    Config::load(&path).config.map_err(|err| format!("{err:?}"))
+    warn_about_ignored_sections(&config);
+    Ok((config, path))
+}
+
+fn warn_about_ignored_sections(config: &Config) {
+    for section in config::ignored_sections(config) {
+        tracing::warn!("config section has no effect on macOS: {section}");
+    }
 }
 
 fn main() -> ExitCode {
@@ -81,19 +95,19 @@ fn main() -> ExitCode {
         .with_writer(std::io::stderr)
         .init();
 
-    let config = match load_config(args.config) {
-        Ok(config) => config,
+    let (config, config_path) = match load_config(args.config) {
+        Ok(loaded) => loaded,
         Err(message) => {
             eprintln!("elara: the config could not be loaded:\n{message}");
             return ExitCode::FAILURE;
         }
     };
 
-    run(config)
+    run(config, config_path)
 }
 
 #[cfg(target_os = "macos")]
-fn run(config: Config) -> ExitCode {
+fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -135,6 +149,9 @@ fn run(config: Config) -> ExitCode {
             tracing::warn!("could not install handler for signal {signal}: {err}");
         }
     }
+
+    elara::spawn_at_startup(&config);
+    let mut watcher = config_path.map(config::ConfigWatcher::new);
 
     let state = Rc::new(RefCell::new(State::new(backend, config)));
     tracing::info!(
@@ -178,6 +195,26 @@ fn run(config: Config) -> ExitCode {
         // A panic must not unwind into the run loop, and must not leave windows parked off
         // screen with nothing running that could bring them back.
         let pass = catch_unwind(AssertUnwindSafe(|| {
+            // Pick up edits to the config file. A config with errors is reported and the one
+            // in use stays, as in niri.
+            let changed = watcher
+                .as_mut()
+                .and_then(|watcher| watcher.changed().then(|| watcher.path().to_owned()));
+            if let Some(path) = changed {
+                match config::load(&path) {
+                    Ok(config) => {
+                        tracing::info!("config changed, reloading");
+                        warn_about_ignored_sections(&config);
+                        state.set_config(config);
+                    }
+                    Err(message) => {
+                        tracing::error!(
+                            "the config has errors; keeping the previous one:\n{message}"
+                        );
+                    }
+                }
+            }
+
             let queued: Vec<_> = actions.borrow_mut().drain(..).collect();
             for action in queued {
                 state.do_action(action);
@@ -209,7 +246,7 @@ fn run(config: Config) -> ExitCode {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn run(_config: Config) -> ExitCode {
+fn run(_config: Config, _config_path: Option<PathBuf>) -> ExitCode {
     eprintln!("elara: only macOS is supported.");
     ExitCode::FAILURE
 }

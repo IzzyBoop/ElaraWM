@@ -287,11 +287,13 @@ impl LayoutElement for Window {
     }
 
     fn min_size(&self) -> Size<i32, Logical> {
-        self.inner.min_size.get()
+        // As in niri's `Mapped`: the window's own limit, tightened by `min-width` and
+        // `min-height` window rules.
+        self.rules.apply_min_size(self.inner.min_size.get())
     }
 
     fn max_size(&self) -> Size<i32, Logical> {
-        self.inner.max_size.get()
+        self.rules.apply_max_size(self.inner.max_size.get())
     }
 
     fn is_wl_surface(&self, wl_surface: &WlSurface) -> bool {

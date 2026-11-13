@@ -143,6 +143,23 @@ impl<B: WindowBackend> State<B> {
         &self.config
     }
 
+    /// Switches to a new config, as after the config file was edited.
+    ///
+    /// The layout picks up its new options at once, and every window's rules are resolved
+    /// again. As in niri, rules that only apply when a window opens, such as `open-floating`,
+    /// do not move windows that are already open.
+    pub fn set_config(&mut self, config: Config) {
+        self.layout.update_config(&config);
+        self.config = config;
+
+        let ids: Vec<WindowId> = self.windows.keys().copied().collect();
+        for id in ids {
+            self.recompute_rules(id);
+        }
+
+        self.apply();
+    }
+
     /// Handles everything the system reported since the last call, then puts every window
     /// where the layout says it belongs.
     pub fn tick(&mut self) {

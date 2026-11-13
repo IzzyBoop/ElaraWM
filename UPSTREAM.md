@@ -52,7 +52,14 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/elara-layout/src/window/mod.rs` | `src/window/mod.rs` | modified: `WindowRef` carries window facts instead of wrapping Wayland surfaces |
 | `crates/elara-layout/src/render_helpers/` | `src/render_helpers/` | stubbed, see below |
 | `resources/default-config.kdl` | `resources/default-config.kdl` | verbatim |
+| `resources/elara-default-config.kdl` | `resources/default-config.kdl` | generated: niri's default with marked edits for macOS |
 | `docs/wiki/*.md` | `docs/wiki/*.md` | verbatim (images and assets not imported) |
+
+`resources/elara-default-config.kdl` is what a new `~/.config/elara/config.kdl` contains. It is
+produced from niri's untouched default by `tools/gen-elara-default-config.py`, which swaps the
+Linux programs in a few binds for macOS ones and comments out binds and options that do nothing
+on macOS. Every edit asserts the upstream line it expects, so run the script again after a
+re-sync and fix whatever no longer matches.
 
 `crates/elara-layout/src/input/mod.rs` and `crates/elara-layout/src/lib.rs` are ElaraWM's own;
 they only declare the imported modules.
