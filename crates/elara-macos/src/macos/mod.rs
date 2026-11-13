@@ -3,6 +3,7 @@
 mod ax;
 mod backend;
 mod display;
+mod run_loop;
 
 use objc2_application_services::{
     kAXTrustedCheckOptionPrompt, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,
@@ -11,6 +12,7 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFString, CFType};
 use objc2_foundation::MainThreadMarker;
 
 pub use self::backend::MacBackend;
+pub use self::run_loop::run;
 use crate::DisplayInfo;
 
 /// Lists the connected displays, primary first. This needs no permission.
