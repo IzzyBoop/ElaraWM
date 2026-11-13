@@ -23,7 +23,9 @@ use std::fmt;
 
 pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
-pub use macos::{accessibility_trusted, displays, request_accessibility, MacBackend};
+pub use macos::{
+    accessibility_trusted, displays, request_accessibility, run as run_main_loop, MacBackend,
+};
 pub use mock::MockBackend;
 
 /// Identifies a window for as long as it exists. Never reused within one backend.

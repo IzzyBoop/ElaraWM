@@ -7,7 +7,8 @@ ElaraWM runs niri's own layout and configuration code. The Wayland compositor ba
 by a macOS backend that arranges real application windows through the Accessibility API, so it
 works with System Integrity Protection enabled.
 
-**Status:** early development. Nothing is usable yet.
+**Status:** early development. Windows are tiled into niri's scrolling columns as they open and
+close. There are no key bindings yet, so the layout cannot be driven from the keyboard.
 
 ## Goals
 
@@ -21,6 +22,24 @@ works with System Integrity Protection enabled.
 ElaraWM is a window manager, not a compositor. It cannot change other applications' shadows,
 opacity or corner radius, and it cannot draw windows itself. Sections of a niri config that only
 make sense on Linux are accepted and ignored.
+
+## Running
+
+```sh
+cargo run -p elara
+```
+
+ElaraWM needs the Accessibility permission to move other applications' windows. macOS grants it
+per application; for a build run from a terminal, that is the terminal (or the editor whose
+terminal you use). On first start macOS offers to open the right pane of System Settings.
+
+Stop it with Ctrl-C. Windows that were scrolled out of view are brought back on screen.
+
+To see what ElaraWM can see without managing anything:
+
+```sh
+cargo run -p elara-macos --example probe
+```
 
 ## Building
 
