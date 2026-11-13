@@ -1,0 +1,22 @@
+[package]
+name = "elara-macos"
+version.workspace = true
+description = "macOS window, display and permission access for ElaraWM, through the Accessibility API"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+# The bindings are used with their default features, which cover each framework in full. The
+# per-API features are fine-grained enough that a trimmed list breaks on small changes.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-application-services = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-foundation = "0.3.2"
