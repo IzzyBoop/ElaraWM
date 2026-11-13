@@ -1,0 +1,32 @@
+[package]
+name = "niri-config"
+# ELARA: upstream inherits the workspace version. ElaraWM has its own, so the niri version these
+# files were taken from is stated here.
+version = "26.4.0"
+description.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+csscolorparser = "0.8.3"
+knuffel = "3.2.0"
+miette = { version = "5.10.0", features = ["fancy-no-backtrace"] }
+niri-ipc = { version = "26.4.0", path = "../niri-ipc" }
+regex = "1.12.3"
+# ELARA: no `backend_libinput` feature; the stand-in crate always provides the libinput enums.
+smithay.workspace = true
+tracing.workspace = true
+tracy-client.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+pretty_assertions = "1.4.1"
+diff = "0.1.13"
+
+# ELARA: lints that the pinned toolchain's clippy raises on unmodified upstream code. They are
+# allowed here rather than fixed, so the imported files stay identical to niri's.
+[lints.clippy]
+needless_bool = "allow"

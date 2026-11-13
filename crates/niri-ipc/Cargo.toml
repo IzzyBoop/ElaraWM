@@ -1,0 +1,24 @@
+[package]
+name = "niri-ipc"
+# ELARA: upstream inherits the workspace version. ElaraWM has its own, so the niri version these
+# files were taken from is stated here.
+version = "26.4.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+description = "Types and helpers for interfacing with the niri Wayland compositor."
+keywords = ["wayland"]
+categories = ["api-bindings", "os"]
+readme = "README.md"
+
+[dependencies]
+clap = { workspace = true, optional = true }
+schemars = { version = "1.2.1", optional = true }
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+clap = ["dep:clap"]
+json-schema = ["dep:schemars"]

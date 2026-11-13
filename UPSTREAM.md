@@ -31,10 +31,21 @@ compositor by Ivan Molodetskikh and contributors, licensed GPL-3.0-or-later.
 
 ### From niri
 
-None yet.
+Whole directories are listed once; every file in them is verbatim unless named separately.
 
 | ElaraWM path | Upstream path | Status |
 |---|---|---|
+| `crates/niri-ipc/` | `niri-ipc/` | verbatim |
+| `crates/niri-ipc/Cargo.toml` | `niri-ipc/Cargo.toml` | modified: explicit version |
+| `crates/niri-config/` | `niri-config/` | verbatim |
+| `crates/niri-config/Cargo.toml` | `niri-config/Cargo.toml` | modified: explicit version, Smithay stand-in, clippy allowances |
+| `crates/niri-config/src/lib.rs` | `niri-config/src/lib.rs` | modified: path to the default config |
+| `crates/niri-config/tests/wiki-parses.rs` | `niri-config/tests/wiki-parses.rs` | modified: path to the wiki |
+| `resources/default-config.kdl` | `resources/default-config.kdl` | verbatim |
+| `docs/wiki/*.md` | `docs/wiki/*.md` | verbatim (images and assets not imported) |
+
+The wiki pages are niri's documentation, kept unedited because `niri-config`'s tests parse every
+KDL snippet in them. They describe niri on Linux, not ElaraWM.
 
 ### From Smithay
 
