@@ -320,21 +320,49 @@ fn window_rules_from_the_config_apply() {
 }
 
 #[test]
-fn releasing_brings_parked_windows_back_on_screen() {
-    let mut state = start(MockBackend::with_laptop_display());
-    let a = open(&mut state, "a");
-    let _b = open(&mut state, "b");
+fn releasing_gives_every_window_its_original_frame_back() {
+    let mut backend = MockBackend::with_laptop_display();
+    let before_a = Rect::new(120., 90., 700., 500.);
+    let a = backend.open_window("a", "a", before_a);
+    let mut state = start(backend);
+
+    let before_b = Rect::new(300., 200., 640., 480.);
+    let b = open(&mut state, "b");
     let c = open(&mut state, "c");
     assert!(is_parked(&state, a));
-    let c_before = frame(&state, c);
+    assert_ne!(frame(&state, b), before_b);
 
+    state.release_windows();
+
+    // Windows that were there before ElaraWM started, windows opened since, parked or not.
+    assert_eq!(frame(&state, a), before_a);
+    assert_eq!(frame(&state, b), before_b);
+    assert_eq!(frame(&state, c), before_b);
+}
+
+#[test]
+fn releasing_a_window_whose_display_is_gone_puts_it_on_a_remaining_one() {
+    let mut backend = MockBackend::with_laptop_display();
+    backend.add_display(DisplayInfo {
+        id: DisplayId(2),
+        name: "External".to_owned(),
+        frame: Rect::new(1800., 0., 2560., 1440.),
+        visible_frame: Rect::new(1800., 25., 2560., 1415.),
+        scale: 1.,
+        refresh_mhz: Some(60_000),
+        is_primary: false,
+    });
+    let a = backend.open_window("a", "a", Rect::new(2500., 300., 500., 400.));
+    let mut state = start(backend);
+
+    state.backend_mut().remove_display(DisplayId(2));
+    state.tick();
     state.release_windows();
 
     let restored = frame(&state, a);
     assert!(restored.x >= USABLE.x && restored.max_x() <= USABLE.max_x());
     assert!(restored.y >= USABLE.y && restored.max_y() <= USABLE.max_y());
-    // Windows that were visible stay where they were.
-    assert_eq!(frame(&state, c), c_before);
+    assert_eq!(restored.size(), Size { w: 500., h: 400. });
 }
 
 #[test]

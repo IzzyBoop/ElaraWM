@@ -680,10 +680,13 @@ impl<B: WindowBackend> State<B> {
         self.focus_dirty = true;
     }
 
-    /// Brings every parked window back onto its display.
+    /// Gives the windows back: each returns to the frame it had before ElaraWM took it over.
     ///
     /// Call this before exiting. Windows on other workspaces are kept just past a corner of
-    /// the screen, and nothing else would ever bring them back.
+    /// the screen, and nothing else would ever bring them back; and a user who stops ElaraWM
+    /// should find their desktop as they left it rather than frozen in its last tiled state.
+    /// A window whose original place is no longer on any display, such as one that was on a
+    /// display since unplugged, is put on the display it is on now.
     pub fn release_windows(&mut self) {
         let mut offset = 0.;
         let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();
@@ -691,36 +694,43 @@ impl<B: WindowBackend> State<B> {
 
         for id in ids {
             let window = &self.windows[&id];
-            let frame = window.frame();
-            let on_screen = self
-                .displays
-                .iter()
-                .any(|d| is_reachable(frame, &d.info.visible_frame));
-            if on_screen {
-                continue;
-            }
-
-            let area = self
-                .layout
-                .monitors()
-                .find(|mon| mon.has_window(&id))
-                .and_then(|mon| self.display_for_output(mon.output()))
-                .or(self.displays.first())
-                .map(|d| d.info.visible_frame);
-            let Some(area) = area else {
-                continue;
+            let original = window.original_frame();
+            let is_on_screen = |frame: Rect| {
+                self.displays
+                    .iter()
+                    .any(|d| is_reachable(frame, &d.info.visible_frame))
             };
 
-            // Cascade them so that they do not end up in one pile.
-            let restored = Rect::new(
-                area.x + offset,
-                area.y + offset,
-                frame.w.min(area.w - offset),
-                frame.h.min(area.h - offset),
-            );
-            offset = (offset + 32.) % (area.h / 2.).max(32.);
+            let restored = if is_on_screen(original) {
+                original
+            } else {
+                let area = self
+                    .layout
+                    .monitors()
+                    .find(|mon| mon.has_window(&id))
+                    .and_then(|mon| self.display_for_output(mon.output()))
+                    .or(self.displays.first())
+                    .map(|d| d.info.visible_frame);
+                let Some(area) = area else {
+                    continue;
+                };
+
+                // Cascade them so that they do not end up in one pile.
+                let frame = Rect::new(
+                    area.x + offset,
+                    area.y + offset,
+                    original.w.min(area.w - offset),
+                    original.h.min(area.h - offset),
+                );
+                offset = (offset + 32.) % (area.h / 2.).max(32.);
+                frame
+            };
+
+            if window.frame() == restored {
+                continue;
+            }
             if let Err(err) = self.backend.set_frame(id, restored) {
-                debug!(?id, %err, "could not bring window back on screen");
+                debug!(?id, %err, "could not give window its original frame back");
             }
         }
     }
