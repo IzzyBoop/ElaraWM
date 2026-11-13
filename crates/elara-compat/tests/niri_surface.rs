@@ -95,3 +95,86 @@ fn config_only_types_exist() {
     let _ = input::ScrollMethod::TwoFinger;
     let _ = input::TapButtonMap::LeftRightMiddle;
 }
+
+#[test]
+fn working_area_defaults_to_the_output_and_can_be_reduced() {
+    use smithay::desktop::layer_map_for_output;
+
+    let output = test_output("display-1");
+    // No mode yet: nothing to tile into.
+    assert_eq!(
+        layer_map_for_output(&output).non_exclusive_zone(),
+        Rectangle::default()
+    );
+
+    output.change_current_state(
+        Some(Mode {
+            size: Size::from((3024, 1964)),
+            refresh: 120_000,
+        }),
+        None,
+        Some(output::Scale::Fractional(2.0)),
+        None,
+    );
+    let full = Rectangle::<i32, Logical>::new(Point::from((0, 0)), Size::from((1512, 982)));
+    assert_eq!(layer_map_for_output(&output).non_exclusive_zone(), full);
+
+    // A menu bar at the top and a Dock at the bottom.
+    let visible = Rectangle::new(Point::from((0, 38)), Size::from((1512, 870)));
+    layer_map_for_output(&output).set_non_exclusive_zone(Some(visible));
+    assert_eq!(layer_map_for_output(&output).non_exclusive_zone(), visible);
+    // Seen through any handle to the same output.
+    assert_eq!(
+        layer_map_for_output(&output.clone()).non_exclusive_zone(),
+        visible
+    );
+
+    layer_map_for_output(&output).set_non_exclusive_zone(None);
+    assert_eq!(layer_map_for_output(&output).non_exclusive_zone(), full);
+}
+
+#[test]
+fn element_wrappers_report_adjusted_geometry() {
+    use smithay::backend::renderer::element::Element;
+    use smithay::backend::renderer::element::utils::{
+        CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement,
+    };
+
+    struct Fixed(Rectangle<i32, Physical>);
+    impl Element for Fixed {
+        fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+            self.0
+        }
+    }
+
+    let rect = |x, y, w, h| Rectangle::new(Point::from((x, y)), Size::from((w, h)));
+    let scale = Scale::from(1.0);
+
+    let moved = RelocateRenderElement::from_element(
+        Fixed(rect(10, 10, 100, 50)),
+        (5, -5),
+        Relocate::Relative,
+    );
+    assert_eq!(moved.geometry(scale), rect(15, 5, 100, 50));
+    let placed = RelocateRenderElement::from_element(
+        Fixed(rect(10, 10, 100, 50)),
+        (5, -5),
+        Relocate::Absolute,
+    );
+    assert_eq!(placed.geometry(scale), rect(5, -5, 100, 50));
+
+    let halved = RescaleRenderElement::from_element(
+        Fixed(rect(10, 10, 100, 50)),
+        Point::from((10, 10)),
+        0.5,
+    );
+    assert_eq!(halved.geometry(scale), rect(10, 10, 50, 25));
+
+    let cropped =
+        CropRenderElement::from_element(Fixed(rect(0, 0, 100, 50)), scale, rect(50, 0, 100, 100));
+    assert_eq!(cropped.unwrap().geometry(scale), rect(50, 0, 50, 50));
+    assert!(
+        CropRenderElement::from_element(Fixed(rect(0, 0, 10, 10)), scale, rect(50, 0, 10, 10))
+            .is_none()
+    );
+}

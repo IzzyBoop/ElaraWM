@@ -24,7 +24,7 @@ crates/
   elara-compat/   stand-ins for the Smithay types niri's code expects
   niri-ipc/       imported from upstream
   niri-config/    imported from upstream
-  elara-layout/   niri src/layout and src/animation, rendering removed
+  elara-layout/   niri src/layout and src/animation, with inert render stand-ins
   elara-macos/    Accessibility, displays, event tap, permissions
   elara/          daemon binary
 ```
@@ -38,6 +38,10 @@ Crates are added as their stage lands; only the ones present under `crates/` exi
 - Update the file table in `UPSTREAM.md` in the same commit.
 - Layout logic belongs in `elara-layout` only. `elara-macos` feeds events in and applies the
   rectangles the layout computes.
+- Do not edit drawing code out of imported layout files. Rendering is neutralised by the
+  stand-ins in `elara-layout/src/render_helpers` and `elara-compat`; see "How rendering is
+  handled" in `UPSTREAM.md`. A compile error from a new upstream render call is fixed in the
+  stand-in.
 
 ## Git workflow
 
@@ -56,6 +60,16 @@ cargo +nightly fmt --all -- --check
 ```
 
 `rustfmt.toml` is niri's and uses unstable options, so formatting needs nightly rustfmt.
+
+After touching `elara-layout` or `elara-compat`, also run niri's slow exhaustive and
+property-based layout tests (about 15 seconds in release mode):
+
+```sh
+RUN_SLOW_TESTS=1 cargo test --release -p elara-layout
+```
+
+If the pinned clippy raises a lint on unmodified upstream code, allow it in that crate's
+`Cargo.toml` under `[lints.clippy]` with an `ELARA:` comment. Do not edit the upstream file.
 
 ## Toolchain
 

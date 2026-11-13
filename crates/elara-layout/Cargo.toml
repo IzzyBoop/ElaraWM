@@ -1,0 +1,37 @@
+[package]
+name = "elara-layout"
+version.workspace = true
+description = "niri's layout and animation code, with rendering replaced by inert stand-ins"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+atomic = "0.6.1"
+bitflags.workspace = true
+calloop = "0.14.4"
+fastrand = "2.4.1"
+glam = "0.32.1"
+keyframe = { version = "1.1.1", default-features = false }
+niri-config = { version = "26.4.0", path = "../niri-config" }
+niri-ipc = { version = "26.4.0", path = "../niri-ipc" }
+ordered-float = "5.3.0"
+smithay.workspace = true
+tracing.workspace = true
+tracy-client.workspace = true
+
+[dev-dependencies]
+approx = "0.5.1"
+insta.workspace = true
+proptest = "1.11.0"
+proptest-derive = { version = "0.8.0", features = ["boxed_union"] }
+
+[lints.clippy]
+# Same as upstream niri.
+new_without_default = "allow"
+collapsible_match = "allow"
+# ELARA: lints that the pinned toolchain's clippy raises on unmodified upstream code. They are
+# allowed here rather than fixed, so the imported files stay identical to niri's.
+needless_late_init = "allow"

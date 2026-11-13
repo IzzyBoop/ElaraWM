@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/elara",
     "crates/elara-compat",
+    "crates/elara-layout",
     "crates/niri-config",
     "crates/niri-ipc",
 ]
@@ -17,6 +18,7 @@ rust-version = "1.85"
 repository = "https://github.com/niri-wm/niri"
 
 [workspace.dependencies]
+anyhow = "1.0.102"
 bitflags = "2.11.1"
 clap = { version = "4.6.1", features = ["derive"] }
 insta = "1.47.2"
