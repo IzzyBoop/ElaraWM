@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/elara",
+    "crates/elara-compat",
 ]
 
 [workspace.package]
@@ -11,6 +12,9 @@ authors = ["IzzyBoop", "Ivan Molodetskikh <yalterz@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021"
 rust-version = "1.85"
+
+[workspace.dependencies]
+tracing = { version = "0.1.44", features = ["max_level_trace", "release_max_level_debug"] }
 
 [profile.release]
 debug = "line-tables-only"
