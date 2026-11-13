@@ -71,6 +71,20 @@ RUN_SLOW_TESTS=1 cargo test --release -p elara-layout
 If the pinned clippy raises a lint on unmodified upstream code, allow it in that crate's
 `Cargo.toml` under `[lints.clippy]` with an `ELARA:` comment. Do not edit the upstream file.
 
+## Checking against the real system
+
+Window access needs the Accessibility permission, which macOS grants per application. For a
+cargo build it attaches to whatever launched the binary: the terminal or the editor.
+
+```sh
+cargo run -p elara-macos --example probe            # permission, displays, windows
+cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
+```
+
+Everything above `elara-macos` is tested against `MockBackend`, which needs neither a display
+nor the permission. Code in `elara-macos/src/macos/` can only be checked by running it with the
+permission granted; say so plainly when a change there has not been run that way.
+
 ## Toolchain
 
 rustup is installed with Homebrew and is keg-only. If `cargo` is not on `PATH`:

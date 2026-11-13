@@ -4,6 +4,7 @@ members = [
     "crates/elara",
     "crates/elara-compat",
     "crates/elara-layout",
+    "crates/elara-macos",
     "crates/niri-config",
     "crates/niri-ipc",
 ]
