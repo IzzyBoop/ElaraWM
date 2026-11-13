@@ -8,6 +8,8 @@
 #[macro_use]
 extern crate tracing;
 
+mod actions;
+pub mod binds;
 mod state;
 mod window;
 

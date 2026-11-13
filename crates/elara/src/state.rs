@@ -1,6 +1,7 @@
 //! The window manager: niri's layout on one side, the system's windows on the other.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
 use elara_layout::layout::{ActivateWindow, AddWindowTarget, Layout, LayoutElement as _};
@@ -25,10 +26,13 @@ use crate::window::Window;
 /// answers the correction with yet another size.
 const MAX_APPLY_ROUNDS: usize = 3;
 
+/// How long after asking the system to focus a window its confirmation is still expected.
+const FOCUS_ECHO_WINDOW: Duration = Duration::from_secs(1);
+
 /// A display and the layout output that stands for it.
-struct Display {
-    info: DisplayInfo,
-    output: Output,
+pub(crate) struct Display {
+    pub(crate) info: DisplayInfo,
+    pub(crate) output: Output,
 }
 
 /// Where a window should be, in global coordinates, and whether any of it shows.
@@ -39,18 +43,27 @@ struct Target {
 
 /// niri's layout, driving macOS windows through a [`WindowBackend`].
 pub struct State<B: WindowBackend> {
-    backend: B,
-    config: Config,
+    pub(crate) backend: B,
+    pub(crate) config: Config,
     clock: Clock,
-    layout: Layout<Window>,
-    displays: Vec<Display>,
+    pub(crate) layout: Layout<Window>,
+    pub(crate) displays: Vec<Display>,
     /// Every window in the layout.
-    windows: HashMap<WindowId, Window>,
+    pub(crate) windows: HashMap<WindowId, Window>,
     /// Windows that exist but are kept out of the layout because they are minimized or in
     /// native fullscreen. They rejoin it when that ends.
     sidelined: HashMap<WindowId, WindowInfo>,
     /// Whether the layout's idea of the focused window may differ from the system's.
-    focus_dirty: bool,
+    pub(crate) focus_dirty: bool,
+    /// The window ElaraWM last asked the system to focus, and when. The system confirms a
+    /// focus change with the same event it sends when the user switches windows. That
+    /// confirmation arrives later, possibly after further actions, and must not be mistaken
+    /// for the user switching back.
+    pending_focus: Option<(WindowId, Instant)>,
+    /// Windows in the order they last had focus, most recent last.
+    pub(crate) focus_history: Vec<WindowId>,
+    /// Set by the `quit` action.
+    pub(crate) quit_requested: bool,
     /// True until the windows that already existed at startup have been added.
     is_at_startup: bool,
 }
@@ -75,6 +88,9 @@ impl<B: WindowBackend> State<B> {
             windows: HashMap::new(),
             sidelined: HashMap::new(),
             focus_dirty: false,
+            pending_focus: None,
+            focus_history: Vec::new(),
+            quit_requested: false,
             is_at_startup: true,
         };
 
@@ -161,6 +177,12 @@ impl<B: WindowBackend> State<B> {
                 self.set_sidelined(id, fullscreen, |info| &mut info.fullscreen);
             }
             Event::FocusChanged(Some(id)) => {
+                // The system confirming a focus change ElaraWM asked for is not news.
+                if let Some((pending, since)) = self.pending_focus.take() {
+                    if pending == id && since.elapsed() < FOCUS_ECHO_WINDOW {
+                        return;
+                    }
+                }
                 if self.windows.contains_key(&id) {
                     self.layout.activate_window(&id);
                 }
@@ -400,6 +422,7 @@ impl<B: WindowBackend> State<B> {
         }
         debug!(?id, "removing window from the layout");
         self.layout.remove_window(&id, Transaction::new());
+        self.focus_history.retain(|other| *other != id);
         // niri picks which window is focused next; macOS has picked one too, and they need not
         // agree.
         self.focus_dirty = true;
@@ -556,6 +579,18 @@ impl<B: WindowBackend> State<B> {
         }
 
         self.sync_focus();
+
+        if let Some(focused) = self.layout.focus().map(|window| window.window_id()) {
+            if self.focus_history.last() != Some(&focused) {
+                self.focus_history.retain(|other| *other != focused);
+                self.focus_history.push(focused);
+            }
+        }
+    }
+
+    /// Whether the `quit` action has run.
+    pub fn should_quit(&self) -> bool {
+        self.quit_requested
     }
 
     /// Computes where the layout wants every window, in global coordinates.
@@ -633,8 +668,9 @@ impl<B: WindowBackend> State<B> {
         if self.backend.focused_window() == Some(wanted) {
             return;
         }
-        if let Err(err) = self.backend.focus(wanted) {
-            debug!(id = ?wanted, %err, "could not focus window");
+        match self.backend.focus(wanted) {
+            Ok(()) => self.pending_focus = Some((wanted, Instant::now())),
+            Err(err) => debug!(id = ?wanted, %err, "could not focus window"),
         }
     }
 
