@@ -3,6 +3,7 @@
 mod ax;
 mod backend;
 mod display;
+mod keys;
 mod run_loop;
 
 use objc2_application_services::{
@@ -12,6 +13,7 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFString, CFType};
 use objc2_foundation::MainThreadMarker;
 
 pub use self::backend::MacBackend;
+pub use self::keys::KeyTap;
 pub use self::run_loop::run;
 use crate::DisplayInfo;
 

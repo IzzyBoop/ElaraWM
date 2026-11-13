@@ -94,13 +94,17 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "macos")]
 fn run(config: Config) -> ExitCode {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
+    use elara::keys::KeyHandler;
     use elara::State;
-    use elara_macos::{request_accessibility, run_main_loop, MacBackend};
+    use elara_macos::{request_accessibility, run_main_loop, KeyTap, MacBackend};
 
     // Shows the system dialog pointing at the right settings pane if the permission is missing.
     if !request_accessibility() {
@@ -132,8 +136,36 @@ fn run(config: Config) -> ExitCode {
         }
     }
 
-    let mut state = State::new(backend, config);
-    tracing::info!("managing {} windows", state.layout().windows().count());
+    let state = Rc::new(RefCell::new(State::new(backend, config)));
+    tracing::info!(
+        "managing {} windows",
+        state.borrow().layout().windows().count()
+    );
+
+    // Key presses arrive through the tap, between passes of the loop below. The tap only
+    // decides whether a press is a bind; the action waits here until the loop runs it.
+    let actions = Rc::new(RefCell::new(VecDeque::new()));
+    let mut key_handler = KeyHandler::new();
+    let tap = KeyTap::new({
+        let state = Rc::clone(&state);
+        let actions = Rc::clone(&actions);
+        move |event| {
+            // The state is only ever borrowed elsewhere while the loop below runs a pass,
+            // and the tap does not fire during one. If that ever changes, let the key through
+            // rather than panic inside a system callback.
+            let Ok(state) = state.try_borrow() else {
+                return false;
+            };
+            let response = key_handler.handle(state.config(), event);
+            if let Some(action) = response.action {
+                actions.borrow_mut().push_back(action);
+            }
+            response.swallow
+        }
+    });
+    if tap.is_none() {
+        tracing::warn!("could not install the key event tap; key bindings will not work");
+    }
 
     let mut crashed = false;
     // The interval bounds how long a signal waits to be noticed and how often applications
@@ -142,14 +174,26 @@ fn run(config: Config) -> ExitCode {
         if quit.load(Ordering::Relaxed) {
             return false;
         }
+        let mut state = state.borrow_mut();
         // A panic must not unwind into the run loop, and must not leave windows parked off
         // screen with nothing running that could bring them back.
-        if catch_unwind(AssertUnwindSafe(|| state.tick())).is_err() {
+        let pass = catch_unwind(AssertUnwindSafe(|| {
+            let queued: Vec<_> = actions.borrow_mut().drain(..).collect();
+            for action in queued {
+                state.do_action(action);
+            }
+            state.tick();
+        }));
+        if pass.is_err() {
             crashed = true;
             return false;
         }
-        true
+        !state.should_quit()
     });
+
+    // Stop intercepting keys before anything else.
+    drop(tap);
+    let mut state = state.borrow_mut();
 
     tracing::info!("bringing windows back on screen");
     if catch_unwind(AssertUnwindSafe(|| state.release_windows())).is_err() {

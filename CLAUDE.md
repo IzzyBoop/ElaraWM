@@ -81,6 +81,12 @@ cargo run -p elara-macos --example probe            # permission, displays, wind
 cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
 ```
 
+**Do not run the `elara` binary to check something unless the user asked for a live run.** Once
+the permission is granted it takes over the real desktop at once: it resizes and moves every
+window and intercepts the bound keys, for as long as it runs. The probe only reads. If `elara`
+is running and should not be, stop it with `pkill -INT -x elara`; SIGINT lets it give windows
+their original frames back, where SIGKILL would leave them parked off screen.
+
 Everything above `elara-macos` is tested against `MockBackend`, which needs neither a display
 nor the permission. Code in `elara-macos/src/macos/` can only be checked by running it with the
 permission granted; say so plainly when a change there has not been run that way.

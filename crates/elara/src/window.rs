@@ -41,6 +41,8 @@ struct Inner {
     title: RefCell<Option<String>>,
     resizable: bool,
 
+    /// The frame the window had when ElaraWM first saw it, to give back on exit.
+    original_frame: Rect,
     /// The frame the window really has, in global coordinates.
     frame: Cell<Rect>,
     /// The last frame asked of the window. Kept so that a request the window answered
@@ -85,6 +87,7 @@ impl Window {
             app_id: info.app_id.clone(),
             title: RefCell::new(info.title.clone()),
             resizable: info.resizable,
+            original_frame: info.frame,
             frame: Cell::new(info.frame),
             last_request: Cell::new(None),
             requested_size: Cell::new(None),
@@ -127,6 +130,11 @@ impl Window {
     /// The frame the window really has, in global coordinates.
     pub fn frame(&self) -> Rect {
         self.inner.frame.get()
+    }
+
+    /// The frame the window had before ElaraWM touched it.
+    pub fn original_frame(&self) -> Rect {
+        self.inner.original_frame
     }
 
     /// The last frame asked of the window, if it has not moved on its own since.

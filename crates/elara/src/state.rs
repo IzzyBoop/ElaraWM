@@ -1,6 +1,7 @@
 //! The window manager: niri's layout on one side, the system's windows on the other.
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
 use elara_layout::layout::{ActivateWindow, AddWindowTarget, Layout, LayoutElement as _};
@@ -25,10 +26,13 @@ use crate::window::Window;
 /// answers the correction with yet another size.
 const MAX_APPLY_ROUNDS: usize = 3;
 
+/// How long after asking the system to focus a window its confirmation is still expected.
+const FOCUS_ECHO_WINDOW: Duration = Duration::from_secs(1);
+
 /// A display and the layout output that stands for it.
-struct Display {
-    info: DisplayInfo,
-    output: Output,
+pub(crate) struct Display {
+    pub(crate) info: DisplayInfo,
+    pub(crate) output: Output,
 }
 
 /// Where a window should be, in global coordinates, and whether any of it shows.
@@ -39,18 +43,27 @@ struct Target {
 
 /// niri's layout, driving macOS windows through a [`WindowBackend`].
 pub struct State<B: WindowBackend> {
-    backend: B,
-    config: Config,
+    pub(crate) backend: B,
+    pub(crate) config: Config,
     clock: Clock,
-    layout: Layout<Window>,
-    displays: Vec<Display>,
+    pub(crate) layout: Layout<Window>,
+    pub(crate) displays: Vec<Display>,
     /// Every window in the layout.
-    windows: HashMap<WindowId, Window>,
+    pub(crate) windows: HashMap<WindowId, Window>,
     /// Windows that exist but are kept out of the layout because they are minimized or in
     /// native fullscreen. They rejoin it when that ends.
     sidelined: HashMap<WindowId, WindowInfo>,
     /// Whether the layout's idea of the focused window may differ from the system's.
-    focus_dirty: bool,
+    pub(crate) focus_dirty: bool,
+    /// The window ElaraWM last asked the system to focus, and when. The system confirms a
+    /// focus change with the same event it sends when the user switches windows. That
+    /// confirmation arrives later, possibly after further actions, and must not be mistaken
+    /// for the user switching back.
+    pending_focus: Option<(WindowId, Instant)>,
+    /// Windows in the order they last had focus, most recent last.
+    pub(crate) focus_history: Vec<WindowId>,
+    /// Set by the `quit` action.
+    pub(crate) quit_requested: bool,
     /// True until the windows that already existed at startup have been added.
     is_at_startup: bool,
 }
@@ -75,6 +88,9 @@ impl<B: WindowBackend> State<B> {
             windows: HashMap::new(),
             sidelined: HashMap::new(),
             focus_dirty: false,
+            pending_focus: None,
+            focus_history: Vec::new(),
+            quit_requested: false,
             is_at_startup: true,
         };
 
@@ -161,6 +177,12 @@ impl<B: WindowBackend> State<B> {
                 self.set_sidelined(id, fullscreen, |info| &mut info.fullscreen);
             }
             Event::FocusChanged(Some(id)) => {
+                // The system confirming a focus change ElaraWM asked for is not news.
+                if let Some((pending, since)) = self.pending_focus.take() {
+                    if pending == id && since.elapsed() < FOCUS_ECHO_WINDOW {
+                        return;
+                    }
+                }
                 if self.windows.contains_key(&id) {
                     self.layout.activate_window(&id);
                 }
@@ -400,6 +422,7 @@ impl<B: WindowBackend> State<B> {
         }
         debug!(?id, "removing window from the layout");
         self.layout.remove_window(&id, Transaction::new());
+        self.focus_history.retain(|other| *other != id);
         // niri picks which window is focused next; macOS has picked one too, and they need not
         // agree.
         self.focus_dirty = true;
@@ -556,6 +579,18 @@ impl<B: WindowBackend> State<B> {
         }
 
         self.sync_focus();
+
+        if let Some(focused) = self.layout.focus().map(|window| window.window_id()) {
+            if self.focus_history.last() != Some(&focused) {
+                self.focus_history.retain(|other| *other != focused);
+                self.focus_history.push(focused);
+            }
+        }
+    }
+
+    /// Whether the `quit` action has run.
+    pub fn should_quit(&self) -> bool {
+        self.quit_requested
     }
 
     /// Computes where the layout wants every window, in global coordinates.
@@ -633,8 +668,9 @@ impl<B: WindowBackend> State<B> {
         if self.backend.focused_window() == Some(wanted) {
             return;
         }
-        if let Err(err) = self.backend.focus(wanted) {
-            debug!(id = ?wanted, %err, "could not focus window");
+        match self.backend.focus(wanted) {
+            Ok(()) => self.pending_focus = Some((wanted, Instant::now())),
+            Err(err) => debug!(id = ?wanted, %err, "could not focus window"),
         }
     }
 
@@ -644,10 +680,13 @@ impl<B: WindowBackend> State<B> {
         self.focus_dirty = true;
     }
 
-    /// Brings every parked window back onto its display.
+    /// Gives the windows back: each returns to the frame it had before ElaraWM took it over.
     ///
     /// Call this before exiting. Windows on other workspaces are kept just past a corner of
-    /// the screen, and nothing else would ever bring them back.
+    /// the screen, and nothing else would ever bring them back; and a user who stops ElaraWM
+    /// should find their desktop as they left it rather than frozen in its last tiled state.
+    /// A window whose original place is no longer on any display, such as one that was on a
+    /// display since unplugged, is put on the display it is on now.
     pub fn release_windows(&mut self) {
         let mut offset = 0.;
         let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();
@@ -655,36 +694,43 @@ impl<B: WindowBackend> State<B> {
 
         for id in ids {
             let window = &self.windows[&id];
-            let frame = window.frame();
-            let on_screen = self
-                .displays
-                .iter()
-                .any(|d| is_reachable(frame, &d.info.visible_frame));
-            if on_screen {
-                continue;
-            }
-
-            let area = self
-                .layout
-                .monitors()
-                .find(|mon| mon.has_window(&id))
-                .and_then(|mon| self.display_for_output(mon.output()))
-                .or(self.displays.first())
-                .map(|d| d.info.visible_frame);
-            let Some(area) = area else {
-                continue;
+            let original = window.original_frame();
+            let is_on_screen = |frame: Rect| {
+                self.displays
+                    .iter()
+                    .any(|d| is_reachable(frame, &d.info.visible_frame))
             };
 
-            // Cascade them so that they do not end up in one pile.
-            let restored = Rect::new(
-                area.x + offset,
-                area.y + offset,
-                frame.w.min(area.w - offset),
-                frame.h.min(area.h - offset),
-            );
-            offset = (offset + 32.) % (area.h / 2.).max(32.);
+            let restored = if is_on_screen(original) {
+                original
+            } else {
+                let area = self
+                    .layout
+                    .monitors()
+                    .find(|mon| mon.has_window(&id))
+                    .and_then(|mon| self.display_for_output(mon.output()))
+                    .or(self.displays.first())
+                    .map(|d| d.info.visible_frame);
+                let Some(area) = area else {
+                    continue;
+                };
+
+                // Cascade them so that they do not end up in one pile.
+                let frame = Rect::new(
+                    area.x + offset,
+                    area.y + offset,
+                    original.w.min(area.w - offset),
+                    original.h.min(area.h - offset),
+                );
+                offset = (offset + 32.) % (area.h / 2.).max(32.);
+                frame
+            };
+
+            if window.frame() == restored {
+                continue;
+            }
             if let Err(err) = self.backend.set_frame(id, restored) {
-                debug!(?id, %err, "could not bring window back on screen");
+                debug!(?id, %err, "could not give window its original frame back");
             }
         }
     }
