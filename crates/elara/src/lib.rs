@@ -10,6 +10,7 @@ extern crate tracing;
 
 mod actions;
 pub mod binds;
+pub mod keys;
 mod state;
 mod window;
 
