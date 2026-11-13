@@ -7,8 +7,9 @@ ElaraWM runs niri's own layout and configuration code. The Wayland compositor ba
 by a macOS backend that arranges real application windows through the Accessibility API, so it
 works with System Integrity Protection enabled.
 
-**Status:** early development. Windows are tiled into niri's scrolling columns as they open and
-close. There are no key bindings yet, so the layout cannot be driven from the keyboard.
+**Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
+workspaces, and driven by niri's key bindings and config file. Nothing is drawn yet: no focus
+ring, borders or animations. It has had very little use on a real desktop.
 
 ## Goals
 
@@ -34,6 +35,21 @@ per application; for a build run from a terminal, that is the terminal (or the e
 terminal you use). On first start macOS offers to open the right pane of System Settings.
 
 Stop it with Ctrl-C. Windows that were scrolled out of view are brought back on screen.
+
+## Configuration
+
+ElaraWM reads `~/.config/elara/config.kdl`, in
+[niri's format](https://niri-wm.github.io/niri/Configuration:-Introduction). The file is created
+on first start from niri's default config, adjusted for macOS, and is reloaded whenever it
+changes. If an edit has an error, the error is printed and the previous config stays in use.
+
+- `Mod` in binds is the Option key. Set `mod-key` in the `input` section to change it. Command
+  is `Super`, Option is `Alt`.
+- Window rules match `app-id` against the application's bundle identifier, such as
+  `com.apple.Terminal`.
+- Output names are display names, such as `"Built-in Retina Display"`.
+- Sections for things macOS controls itself (display modes, keyboard layout, pointer settings,
+  the cursor, layer rules) are accepted and ignored, with a note in the log.
 
 To see what ElaraWM can see without managing anything:
 

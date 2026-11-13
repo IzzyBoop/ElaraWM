@@ -10,9 +10,11 @@ extern crate tracing;
 
 mod actions;
 pub mod binds;
+pub mod config;
 pub mod keys;
 mod state;
 mod window;
 
+pub use actions::spawn_at_startup;
 pub use state::State;
 pub use window::Window;

@@ -27,15 +27,20 @@ enum Direction {
 
 impl<B: WindowBackend> State<B> {
     /// Carries out `action`, then applies the result to the windows.
-    pub fn do_action(&mut self, action: Action) {
+    ///
+    /// Returns `false` if the action is one ElaraWM does not support, in which case nothing
+    /// happened.
+    pub fn do_action(&mut self, action: Action) -> bool {
         debug!(?action, "action");
-        self.dispatch(action);
+        let supported = self.dispatch(action);
         // Whatever the action did to the layout's focus, the system should follow.
         self.focus_dirty = true;
         self.apply();
+        supported
     }
 
-    fn dispatch(&mut self, action: Action) {
+    /// Returns whether the action was recognised.
+    fn dispatch(&mut self, action: Action) -> bool {
         match action {
             Action::Quit(_skip_confirmation) => {
                 info!("quitting as requested");
@@ -217,7 +222,7 @@ impl<B: WindowBackend> State<B> {
                 focus,
             } => {
                 let Some(id) = self.window_by_id(window_id) else {
-                    return;
+                    return true;
                 };
                 if let Some((output, index)) = self.find_output_and_workspace_index(reference) {
                     let activate = if focus {
@@ -482,7 +487,7 @@ impl<B: WindowBackend> State<B> {
                 let id = match id {
                     Some(id) => match self.window_by_id(id) {
                         Some(id) => Some(id),
-                        None => return,
+                        None => return true,
                     },
                     None => None,
                 };
@@ -494,8 +499,10 @@ impl<B: WindowBackend> State<B> {
             // layouts, virtual terminals and monitor power.
             other => {
                 warn!("action not supported on macOS yet: {other:?}");
+                return false;
             }
         }
+        true
     }
 
     fn focused_id(&self) -> Option<WindowId> {
@@ -622,6 +629,20 @@ impl<B: WindowBackend> State<B> {
             (index + count - 1) % count
         };
         (next != index).then(|| self.displays[next].output.clone())
+    }
+}
+
+/// Starts the programs the config lists under `spawn-at-startup` and `spawn-sh-at-startup`.
+pub fn spawn_at_startup(config: &niri_config::Config) {
+    for entry in &config.spawn_at_startup {
+        spawn(entry.command.clone());
+    }
+    for entry in &config.spawn_sh_at_startup {
+        spawn(vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            entry.command.clone(),
+        ]);
     }
 }
 
