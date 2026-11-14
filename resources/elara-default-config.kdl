@@ -16,7 +16,8 @@
 // - Holding Mod and dragging a window with the left mouse button moves it, and with the right
 //   button resizes it by the nearest edge or corner, as in niri. This needs no bind either.
 //   It replaces what macOS does with an Option-click on a window, which is to hide the
-//   application you were in.
+//   application you were in. Dragging with Mod and the middle button drags the strip of
+//   columns or the workspaces.
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.

@@ -62,6 +62,10 @@ changes. If an edit has an error, the error is printed and the previous config s
   leaves its column and lands where it is dropped. Pressing the other button while moving
   switches it between floating and tiled. While ElaraWM runs, this replaces the macOS
   behaviour of an Option-click hiding the application you were in.
+- Holding `Mod` and dragging with the middle mouse button, anywhere, drags the strip of
+  columns sideways or the workspaces up and down.
+- Mouse buttons can be bound like keys: `MouseLeft`, `MouseRight`, `MouseMiddle`, `MouseBack`
+  and `MouseForward`, as in `Mod+MouseMiddle { close-window; }`.
 - The focus ring, borders, the tab indicator and the insert hint come from the `layout`
   section, as in niri. Clicking a tab switches to its window. They
   are drawn in a transparent window on top of the others, in the gaps between windows. A

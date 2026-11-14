@@ -190,12 +190,30 @@ unsafe extern "C-unwind" fn tap_callback(
         | CGEventType::LeftMouseDragged
         | CGEventType::RightMouseDown
         | CGEventType::RightMouseUp
-        | CGEventType::RightMouseDragged => {
+        | CGEventType::RightMouseDragged
+        | CGEventType::OtherMouseDown
+        | CGEventType::OtherMouseUp
+        | CGEventType::OtherMouseDragged => {
+            // Every button past the first two arrives as "other", with its number.
+            let other = || match field(CGEventField::MouseEventButtonNumber) {
+                2 => Some(MouseButton::Middle),
+                3 => Some(MouseButton::Back),
+                4 => Some(MouseButton::Forward),
+                _ => None,
+            };
             let kind = match event_type {
                 CGEventType::LeftMouseDown => MouseEventKind::Pressed(MouseButton::Left),
                 CGEventType::LeftMouseUp => MouseEventKind::Released(MouseButton::Left),
                 CGEventType::RightMouseDown => MouseEventKind::Pressed(MouseButton::Right),
                 CGEventType::RightMouseUp => MouseEventKind::Released(MouseButton::Right),
+                CGEventType::OtherMouseDown => match other() {
+                    Some(button) => MouseEventKind::Pressed(button),
+                    None => return event.as_ptr(),
+                },
+                CGEventType::OtherMouseUp => match other() {
+                    Some(button) => MouseEventKind::Released(button),
+                    None => return event.as_ptr(),
+                },
                 _ => MouseEventKind::Dragged,
             };
             // Global display coordinates with the origin at the top left of the primary
@@ -221,8 +239,7 @@ unsafe extern "C-unwind" fn tap_callback(
     }
 }
 
-/// A system-wide tap on key presses, key releases, scrolling, and the left and right mouse
-/// buttons.
+/// A system-wide tap on key presses, key releases, scrolling, and the mouse buttons.
 ///
 /// While it exists, every such event is shown to the handler before any application gets it.
 /// The handler returns `true` to swallow the event. It runs on the main thread from the main
@@ -256,7 +273,10 @@ impl KeyTap {
             | (1 << CGEventType::LeftMouseDragged.0)
             | (1 << CGEventType::RightMouseDown.0)
             | (1 << CGEventType::RightMouseUp.0)
-            | (1 << CGEventType::RightMouseDragged.0);
+            | (1 << CGEventType::RightMouseDragged.0)
+            | (1 << CGEventType::OtherMouseDown.0)
+            | (1 << CGEventType::OtherMouseUp.0)
+            | (1 << CGEventType::OtherMouseDragged.0);
         // SAFETY: the callback has the signature the API expects, and `context` stays valid
         // until `Drop`, which disables the tap before freeing it.
         let port = unsafe {

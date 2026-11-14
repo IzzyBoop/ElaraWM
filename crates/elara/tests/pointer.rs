@@ -433,3 +433,135 @@ fn dragging_the_top_left_corner_of_a_floating_window_keeps_the_opposite_corner_i
         }
     }
 }
+
+// Binds on mouse buttons.
+
+#[test]
+fn a_bound_mouse_button_runs_its_action_and_is_kept_from_the_application() {
+    let config = niri_config::Config::parse_mem(
+        r#"binds {
+            Mod+MouseMiddle { close-window; }
+            MouseForward { focus-column-right; }
+        }"#,
+    )
+    .unwrap();
+    let mut handler = PointerHandler::new();
+    let at = point(100., 100.);
+
+    let press = mouse(MouseEventKind::Pressed(MouseButton::Middle), at, MOD);
+    let response = handler.handle(&config, &press, |_, _, _| panic!("the bind comes first"));
+    assert!(response.swallow);
+    assert_eq!(response.action, Some(Action::CloseWindow));
+    assert!(response.inputs.is_empty());
+
+    // Its release is kept back too, and nothing else is.
+    let release = mouse(MouseEventKind::Released(MouseButton::Middle), at, MOD);
+    let response = handler.handle(&config, &release, |_, _, _| false);
+    assert!(response.swallow);
+    assert_eq!(response.action, None);
+    let release = mouse(MouseEventKind::Released(MouseButton::Middle), at, MOD);
+    assert!(!handler.handle(&config, &release, |_, _, _| false).swallow);
+
+    // A bind without modifiers.
+    let press = mouse(MouseEventKind::Pressed(MouseButton::Forward), at, NONE);
+    let response = handler.handle(&config, &press, |_, _, _| false);
+    assert!(response.swallow);
+    assert_eq!(response.action, Some(Action::FocusColumnRight));
+
+    // The same button with a modifier the bind does not have is not the bind.
+    let mut handler = PointerHandler::new();
+    let press = mouse(MouseEventKind::Pressed(MouseButton::Forward), at, MOD);
+    let response = handler.handle(&config, &press, |_, _, _| false);
+    assert!(!response.swallow);
+    assert_eq!(response.action, None);
+}
+
+// Dragging the strip and the workspaces with the middle button.
+
+fn is_parked(state: &State<MockBackend>, id: WindowId) -> bool {
+    let frame = frame(state, id);
+    frame.x == SCREEN.max_x() - 1. && frame.y == SCREEN.max_y() - 1.
+}
+
+#[test]
+fn the_middle_button_can_be_pressed_anywhere_on_a_display() {
+    let (state, [a, _b]) = two_columns();
+    assert!(state.can_grab(MouseButton::Middle, center(frame(&state, a))));
+    // In the gap between windows, and on the menu bar.
+    assert!(state.can_grab(MouseButton::Middle, point(4., 600.)));
+    assert!(state.can_grab(MouseButton::Middle, point(900., 10.)));
+    assert!(!state.can_grab(MouseButton::Middle, point(-50., 300.)));
+    assert!(!state.can_grab(MouseButton::Back, point(900., 600.)));
+}
+
+#[test]
+fn dragging_sideways_with_the_middle_button_drags_the_strip() {
+    let mut state = State::new(MockBackend::with_laptop_display(), default_config());
+    let a = open(&mut state, "a");
+    let b = open(&mut state, "b");
+    let c = open(&mut state, "c");
+    state.do_action(Action::FocusColumnFirst);
+    assert!(is_parked(&state, c));
+    let b_before = frame(&state, b).x;
+
+    // Over a window, which must not be focused or moved by this.
+    let from = center(frame(&state, b));
+    let to = point(from.x - 400., from.y + 10.);
+    press(&mut state, MouseButton::Middle, from);
+    assert_eq!(state.backend().focused_window(), Some(a));
+    drag(&mut state, from, to);
+
+    // The columns followed the pointer, and the third has come into view.
+    assert_eq!(frame(&state, b).x, b_before - 400.);
+    assert!(!is_parked(&state, c));
+    assert_eq!(frame(&state, c).x, frame(&state, b).max_x() + GAP);
+
+    // Let go without a flick: the strip settles on a column edge.
+    sleep(Duration::from_millis(200));
+    release(&mut state, MouseButton::Middle);
+    for _ in 0..200 {
+        if !state.is_animating() {
+            break;
+        }
+        sleep(Duration::from_millis(5));
+        state.tick();
+    }
+    assert!(!state.is_animating());
+    let xs = [a, b, c].map(|id| frame(&state, id));
+    assert!(
+        xs.iter()
+            .any(|f| f.x == GAP || f.max_x() == SCREEN.max_x() - GAP),
+        "{xs:?}"
+    );
+}
+
+#[test]
+fn dragging_up_with_the_middle_button_goes_to_the_next_workspace() {
+    let (mut state, [a, b]) = two_columns();
+    // Something to arrive at.
+    state.do_action(Action::MoveColumnToWorkspaceDown(false));
+    state.do_action(Action::FocusWorkspaceUp);
+    assert!(!is_parked(&state, b));
+    assert!(is_parked(&state, a));
+    let b_before = frame(&state, b);
+
+    // Most of the way up the screen: well past the halfway point where the next workspace
+    // takes over.
+    let from = point(900., 1050.);
+    let to = point(905., 100.);
+    press(&mut state, MouseButton::Middle, from);
+    drag(&mut state, from, to);
+    sleep(Duration::from_millis(200));
+    release(&mut state, MouseButton::Middle);
+    for _ in 0..200 {
+        if !state.is_animating() {
+            break;
+        }
+        sleep(Duration::from_millis(5));
+        state.tick();
+    }
+
+    // The workspace below is the one showing now.
+    assert!(is_parked(&state, b), "{:?}", frame(&state, b));
+    assert_eq!(frame(&state, a).y, b_before.y);
+}

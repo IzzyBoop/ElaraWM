@@ -89,6 +89,11 @@ pub struct ScrollEvent {
 pub enum MouseButton {
     Left,
     Right,
+    Middle,
+    /// The side button that goes back in a browser.
+    Back,
+    /// The side button that goes forward in a browser.
+    Forward,
 }
 
 /// What happened to the mouse.
