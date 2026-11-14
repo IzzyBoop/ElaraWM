@@ -8,21 +8,28 @@
 //! tiled window toggle its column between its width and the full width, and two on its top
 //! or bottom reset its height.
 //!
-//! niri does this with pointer grabs: `src/input/mod.rs`, `move_grab.rs` and `resize_grab.rs`.
+//! Dragging with Mod and the middle button, anywhere, drags the strip of columns sideways or
+//! the stack of workspaces up and down, whichever way the pointer first goes. And the config
+//! can bind actions to mouse buttons, as in `Mod+MouseMiddle { close-window; }`.
+//!
+//! niri does this with pointer grabs: `src/input/mod.rs`, `move_grab.rs`, `resize_grab.rs`
+//! and `spatial_movement_grab.rs`.
 //! This file has both halves of the same thing. [`PointerHandler`] sits in the input tap and
 //! decides which mouse events applications never get to see. The methods on [`State`] carry
 //! them out against the layout.
+
+use std::collections::HashSet;
 
 use elara_layout::layout::HitType;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_macos::{
     MouseButton, MouseEvent, MouseEventKind, Point as GlobalPoint, WindowBackend, WindowId,
 };
-use niri_config::Config;
+use niri_config::{Action, Config, Trigger};
 use smithay::output::Output;
 use smithay::utils::{Logical, Point};
 
-use crate::binds::mod_key;
+use crate::binds::{find_bind, mod_key};
 use crate::keys::modifiers;
 use crate::State;
 
@@ -57,6 +64,8 @@ pub struct PointerResponse {
     /// What to hand to [`State`]. A press that arrives while the previous one was never
     /// released yields two: the missing release, then the press.
     pub inputs: Vec<PointerInput>,
+    /// The action of a bind the press triggered, such as `Mod+MouseMiddle`.
+    pub action: Option<Action>,
 }
 
 impl PointerResponse {
@@ -64,6 +73,7 @@ impl PointerResponse {
         Self {
             swallow: false,
             inputs: Vec::new(),
+            action: None,
         }
     }
 
@@ -71,6 +81,7 @@ impl PointerResponse {
         Self {
             swallow: true,
             inputs,
+            action: None,
         }
     }
 }
@@ -85,8 +96,10 @@ impl PointerResponse {
 pub struct PointerHandler {
     /// The button that started the grab in progress.
     grab: Option<MouseButton>,
-    /// The other button, if it was pressed during the grab and is still down.
-    other_down: bool,
+    /// Buttons that are down and whose press was kept from the applications without
+    /// starting a grab: it triggered a bind, or came during a grab. Their release is kept
+    /// from the applications too.
+    swallowed: HashSet<MouseButton>,
 }
 
 impl PointerHandler {
@@ -105,20 +118,6 @@ impl PointerHandler {
     ) -> PointerResponse {
         let position = event.position;
         match (event.kind, self.grab) {
-            (MouseEventKind::Pressed(button), None) => {
-                // As in niri, other modifiers may be held as well.
-                let mod_down = modifiers(event.modifiers).contains(mod_key(config).to_modifiers());
-                if !takes_press(button, position, mod_down) {
-                    return PointerResponse::pass();
-                }
-                self.grab = Some(button);
-                self.other_down = false;
-                PointerResponse::swallow(vec![PointerInput::Press {
-                    button,
-                    position,
-                    mod_down,
-                }])
-            }
             (MouseEventKind::Pressed(button), Some(held)) if button == held => {
                 // The release never arrived, which happens if the system switched the tap off
                 // for a moment. End the old grab and treat this as a new press.
@@ -130,11 +129,43 @@ impl PointerHandler {
                 response
             }
             (MouseEventKind::Pressed(button), Some(_)) => {
-                self.other_down = true;
+                self.swallowed.insert(button);
                 PointerResponse::swallow(vec![PointerInput::Press {
                     button,
                     position,
                     mod_down: false,
+                }])
+            }
+            (MouseEventKind::Pressed(button), None) => {
+                let held = modifiers(event.modifiers);
+
+                // A bind on this button comes first, as in niri.
+                let trigger = match button {
+                    MouseButton::Left => Trigger::MouseLeft,
+                    MouseButton::Right => Trigger::MouseRight,
+                    MouseButton::Middle => Trigger::MouseMiddle,
+                    MouseButton::Back => Trigger::MouseBack,
+                    MouseButton::Forward => Trigger::MouseForward,
+                };
+                if let Some(bind) = find_bind(config, trigger, held) {
+                    self.swallowed.insert(button);
+                    return PointerResponse {
+                        swallow: true,
+                        inputs: Vec::new(),
+                        action: Some(bind.action),
+                    };
+                }
+
+                // As in niri, other modifiers may be held as well.
+                let mod_down = held.contains(mod_key(config).to_modifiers());
+                if !takes_press(button, position, mod_down) {
+                    return PointerResponse::pass();
+                }
+                self.grab = Some(button);
+                PointerResponse::swallow(vec![PointerInput::Press {
+                    button,
+                    position,
+                    mod_down,
                 }])
             }
             (MouseEventKind::Dragged, Some(_)) => {
@@ -144,9 +175,8 @@ impl PointerHandler {
                 self.grab = None;
                 PointerResponse::swallow(vec![PointerInput::Release { button }])
             }
-            (MouseEventKind::Released(_), _) if self.other_down => {
-                // The release of a press that was swallowed, during the grab or just after.
-                self.other_down = false;
+            (MouseEventKind::Released(button), _) if self.swallowed.remove(&button) => {
+                // The release of a press that triggered a bind, or that came during a grab.
                 PointerResponse::swallow(Vec::new())
             }
             _ => PointerResponse::pass(),
@@ -175,17 +205,35 @@ pub(crate) enum PointerGrab {
         button: MouseButton,
         start: GlobalPoint,
     },
+    /// The strip of columns or the stack of workspaces is being dragged.
+    Spatial {
+        button: MouseButton,
+        start: GlobalPoint,
+        last: GlobalPoint,
+        output: Output,
+        gesture: SpatialGesture,
+    },
     /// A press that did all it was going to do when it happened, such as the second of a
     /// double click.
     Spent { button: MouseButton },
 }
 
+/// What a drag with the middle button has turned out to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpatialGesture {
+    /// Not yet clear which way it goes.
+    Recognizing,
+    ViewOffset,
+    WorkspaceSwitch,
+}
+
 impl PointerGrab {
     fn button(&self) -> MouseButton {
         match self {
-            Self::Move { button, .. } | Self::Resize { button, .. } | Self::Spent { button } => {
-                *button
-            }
+            Self::Move { button, .. }
+            | Self::Resize { button, .. }
+            | Self::Spatial { button, .. }
+            | Self::Spent { button } => *button,
         }
     }
 }
@@ -250,12 +298,14 @@ impl<B: WindowBackend> State<B> {
     /// does not manage, such as a menu or a popover, is not known to it: a press on one of
     /// those lands on whichever managed window is beneath.
     pub fn can_grab(&self, button: MouseButton, position: GlobalPoint) -> bool {
-        if self.window_under(position).is_none() {
-            return false;
-        }
         match button {
-            MouseButton::Left => true,
-            MouseButton::Right => self.resize_edges_under(position).is_some(),
+            MouseButton::Left => self.window_under(position).is_some(),
+            MouseButton::Right => {
+                self.window_under(position).is_some() && self.resize_edges_under(position).is_some()
+            }
+            // Dragging the strip or the workspaces works anywhere on a display.
+            MouseButton::Middle => self.output_under(position).is_some(),
+            MouseButton::Back | MouseButton::Forward => false,
         }
     }
 
@@ -315,6 +365,22 @@ impl<B: WindowBackend> State<B> {
         let Some((output, pos_within_output)) = self.output_under(position) else {
             return;
         };
+
+        if button == MouseButton::Middle {
+            // We don't want to accidentally "catch" the wrong workspace during animations,
+            // so the active one it is. And don't activate the window under the cursor, to
+            // avoid unnecessary scrolling when clicking on a partially off-screen window.
+            self.layout.focus_output(&output);
+            self.pointer_grab = Some(PointerGrab::Spatial {
+                button,
+                start: position,
+                last: position,
+                output,
+                gesture: SpatialGesture::Recognizing,
+            });
+            return;
+        }
+
         let Some(window) = self.window_under(position) else {
             return;
         };
@@ -336,6 +402,7 @@ impl<B: WindowBackend> State<B> {
                     moving: false,
                 });
             }
+            MouseButton::Middle | MouseButton::Back | MouseButton::Forward => {}
             MouseButton::Right => {
                 let Some(edges) = self.resize_edges_under(position) else {
                     self.layout.activate_window(&window);
@@ -392,6 +459,48 @@ impl<B: WindowBackend> State<B> {
     fn pointer_motion(&mut self, position: GlobalPoint) {
         let ongoing = match &mut self.pointer_grab {
             None | Some(PointerGrab::Spent { .. }) => return,
+            // niri's `SpatialMovementGrab::on_frame()`.
+            Some(PointerGrab::Spatial {
+                start,
+                last,
+                output,
+                gesture,
+                ..
+            }) => {
+                let timestamp = get_monotonic_time();
+                let since_last = delta(*last, position);
+                *last = position;
+
+                let res = match *gesture {
+                    SpatialGesture::Recognizing => {
+                        let c = delta(*start, position);
+                        // Check if the gesture moved far enough to decide.
+                        if c.x * c.x + c.y * c.y < MOVE_START_DISTANCE * MOVE_START_DISTANCE {
+                            return;
+                        }
+                        if c.x.abs() > c.y.abs() {
+                            *gesture = SpatialGesture::ViewOffset;
+                            self.layout.view_offset_gesture_begin(output, None, false);
+                            self.layout
+                                .view_offset_gesture_update(-c.x, timestamp, false)
+                        } else {
+                            *gesture = SpatialGesture::WorkspaceSwitch;
+                            self.layout.workspace_switch_gesture_begin(output, false);
+                            self.layout
+                                .workspace_switch_gesture_update(-c.y, timestamp, false)
+                        }
+                    }
+                    SpatialGesture::ViewOffset => {
+                        self.layout
+                            .view_offset_gesture_update(-since_last.x, timestamp, false)
+                    }
+                    SpatialGesture::WorkspaceSwitch => {
+                        self.layout
+                            .workspace_switch_gesture_update(-since_last.y, timestamp, false)
+                    }
+                };
+                res.is_some()
+            }
             Some(PointerGrab::Resize { window, start, .. }) => {
                 self.windows.contains_key(window)
                     && self
@@ -523,6 +632,15 @@ impl<B: WindowBackend> State<B> {
             Some(PointerGrab::Resize { window, .. }) => {
                 self.layout.interactive_resize_end(&window);
             }
+            Some(PointerGrab::Spatial { gesture, .. }) => match gesture {
+                SpatialGesture::Recognizing => return,
+                SpatialGesture::ViewOffset => {
+                    self.layout.view_offset_gesture_end(Some(false));
+                }
+                SpatialGesture::WorkspaceSwitch => {
+                    self.layout.workspace_switch_gesture_end(Some(false));
+                }
+            },
         }
         // Where the window was dropped decides what is focused now.
         self.focus_dirty = true;

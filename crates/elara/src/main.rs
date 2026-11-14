@@ -237,9 +237,12 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                         event,
                         |button, position, mod_down| state.takes_press(button, position, mod_down),
                     );
-                    inputs
-                        .borrow_mut()
-                        .extend(response.inputs.into_iter().map(Input::Pointer));
+                    let mut inputs = inputs.borrow_mut();
+                    inputs.extend(response.inputs.into_iter().map(Input::Pointer));
+                    if let Some(action) = response.action {
+                        tracing::debug!("bound mouse button pressed");
+                        inputs.push_back(Input::Scroll(ScrollInput::Action(action)));
+                    }
                     response.swallow
                 }
             }
