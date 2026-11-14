@@ -119,7 +119,12 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     use elara::keys::KeyHandler;
     use elara::scroll::{ScrollHandler, ScrollInput};
     use elara::State;
-    use elara_macos::{request_accessibility, run_main_loop, InputEvent, KeyTap, MacBackend};
+    use elara_macos::{request_accessibility, run_main_loop, InputEvent, KeyTap, MacBackend, Wake};
+
+    /// How long to wait between frames of an animation. Each frame moves windows in other
+    /// applications, which takes a few milliseconds, so this is the pause between frames
+    /// rather than their period.
+    const FRAME_INTERVAL: Duration = Duration::from_millis(8);
 
     // Shows the system dialog pointing at the right settings pane if the permission is missing.
     if !request_accessibility() {
@@ -164,6 +169,9 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     let mut watcher = config_path.map(config::ConfigWatcher::new);
 
     let state = Rc::new(RefCell::new(State::new(backend, config)));
+    // Windows were put in place at once above. From here on, the strip and the workspaces
+    // glide.
+    state.borrow_mut().enable_animations();
     tracing::info!(
         "managing {} windows",
         state.borrow().layout().windows().count()
@@ -224,7 +232,7 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     // that were not ready to be observed are retried.
     run_main_loop(Duration::from_millis(250), || {
         if quit.load(Ordering::Relaxed) {
-            return false;
+            return Wake::Stop;
         }
         let mut state = state.borrow_mut();
         // A panic must not unwind into the run loop, and must not leave windows parked off
@@ -266,9 +274,15 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
         }));
         if pass.is_err() {
             crashed = true;
-            return false;
+            return Wake::Stop;
         }
-        !state.should_quit()
+        if state.should_quit() {
+            Wake::Stop
+        } else if state.is_animating() {
+            Wake::After(FRAME_INTERVAL)
+        } else {
+            Wake::WhenNeeded
+        }
     });
 
     // Stop intercepting keys before anything else.

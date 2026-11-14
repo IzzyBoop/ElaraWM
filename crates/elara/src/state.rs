@@ -77,6 +77,8 @@ pub struct State<B: WindowBackend> {
     pending_focus: Option<(WindowId, Instant)>,
     /// The window that had the system's keyboard focus when it was last looked at.
     system_focus: Option<WindowId>,
+    /// Whether the strip and the workspaces glide into place instead of jumping.
+    animate: bool,
     /// The two-finger gesture in progress, if any.
     gesture: Option<Gesture>,
     /// Windows in the order they last had focus, most recent last.
@@ -109,6 +111,7 @@ impl<B: WindowBackend> State<B> {
             focus_dirty: false,
             pending_focus: None,
             system_focus: None,
+            animate: false,
             gesture: None,
             focus_history: Vec::new(),
             quit_requested: false,
@@ -165,14 +168,65 @@ impl<B: WindowBackend> State<B> {
         &self.config
     }
 
+    /// Lets the strip of columns and the workspaces glide into place, as they do in niri.
+    ///
+    /// Only those two movements are animated. They move windows without resizing them, which
+    /// is one request per window per frame. Windows opening, closing and resizing still take
+    /// effect at once: animating a resize would mean resizing other applications' windows
+    /// dozens of times a second. `animations { off }` in the config, niri's own switch, turns
+    /// these off too.
+    ///
+    /// While [`is_animating()`](Self::is_animating) returns `true`, call
+    /// [`tick()`](Self::tick) once per frame.
+    pub fn enable_animations(&mut self) {
+        self.animate = true;
+        self.push_config_to_layout();
+    }
+
+    /// Brings the layout's clock up to the present.
+    ///
+    /// The layout reads the time once and keeps it until told to read it again, so that
+    /// everything within one frame agrees on what time it is. An animation starts at the time
+    /// the layout has, so this must run before anything that can start one. Otherwise the
+    /// animation starts in the past and skips ahead on its first frame.
+    pub(crate) fn refresh_clock(&mut self) {
+        self.clock.set_unadjusted(get_monotonic_time());
+    }
+
+    /// Whether windows are in the middle of gliding somewhere.
+    pub fn is_animating(&self) -> bool {
+        self.animate && self.layout.are_animations_ongoing(None)
+    }
+
+    /// Hands the layout the config, with the animations ElaraWM does not show switched off.
+    fn push_config_to_layout(&mut self) {
+        let configured = self.config.animations.clone();
+
+        let animations = &mut self.config.animations;
+        animations.window_open.anim.off = true;
+        animations.window_close.anim.off = true;
+        animations.window_movement.0.off = true;
+        animations.window_resize.anim.off = true;
+        animations.overview_open_close.0.off = true;
+        let off = !self.animate || animations.off;
+
+        // As in niri: the global switch and the slowdown factor act on the clock.
+        self.clock.set_complete_instantly(off);
+        let slowdown = animations.slowdown.max(0.001);
+        self.clock.set_rate(1. / slowdown);
+
+        self.layout.update_config(&self.config);
+        self.config.animations = configured;
+    }
+
     /// Switches to a new config, as after the config file was edited.
     ///
     /// The layout picks up its new options at once, and every window's rules are resolved
     /// again. As in niri, rules that only apply when a window opens, such as `open-floating`,
     /// do not move windows that are already open.
     pub fn set_config(&mut self, config: Config) {
-        self.layout.update_config(&config);
         self.config = config;
+        self.push_config_to_layout();
 
         let ids: Vec<WindowId> = self.windows.keys().copied().collect();
         for id in ids {
@@ -185,6 +239,7 @@ impl<B: WindowBackend> State<B> {
     /// Handles everything the system reported since the last call, then puts every window
     /// where the layout says it belongs.
     pub fn tick(&mut self) {
+        self.refresh_clock();
         // The usable part of a display changes without any display event when the Dock or
         // the menu bar is shown or hidden, so the displays are compared on every pass.
         self.sync_displays();
@@ -605,7 +660,7 @@ impl<B: WindowBackend> State<B> {
     /// computed for it, and the layout is told what each window actually did.
     pub fn apply(&mut self) {
         for round in 0..MAX_APPLY_ROUNDS {
-            self.clock.set_unadjusted(get_monotonic_time());
+            self.refresh_clock();
             self.layout.advance_animations();
             // Lets the layout update each window's activated and floating state and issue
             // size requests.
@@ -697,6 +752,7 @@ impl<B: WindowBackend> State<B> {
         // The layout takes the movement of the view, which is the opposite of the movement
         // of the content under it.
         let (delta_x, delta_y) = (-delta_x, -delta_y);
+        self.refresh_clock();
         let timestamp = get_monotonic_time();
 
         if let Gesture::Undecided { x, y } = self
@@ -732,6 +788,7 @@ impl<B: WindowBackend> State<B> {
         if self.gesture.take().is_none() {
             return;
         }
+        self.refresh_clock();
         self.layout.workspace_switch_gesture_end(Some(true));
         self.layout.view_offset_gesture_end(Some(true));
         // Where the layout settled decides which window is focused now.

@@ -8,8 +8,9 @@ by a macOS backend that arranges real application windows through the Accessibil
 works with System Integrity Protection enabled.
 
 **Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
-workspaces, and driven by niri's key bindings and config file. Nothing is drawn yet: no focus
-ring, borders or animations. It has had very little use on a real desktop.
+workspaces, and driven by niri's key bindings and config file. The strip of columns and the
+workspaces glide into place; nothing is drawn yet, so there is no focus ring and there are no
+borders. It has had little use on a real desktop.
 
 ## Goals
 

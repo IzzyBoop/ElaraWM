@@ -25,7 +25,7 @@ pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
 pub use macos::{
     accessibility_trusted, character_for_keycode, displays, displays_have_separate_spaces,
-    request_accessibility, run as run_main_loop, KeyTap, MacBackend,
+    request_accessibility, run as run_main_loop, KeyTap, MacBackend, Wake,
 };
 pub use mock::MockBackend;
 

@@ -12,7 +12,9 @@ Wayland/Smithay backend.
   are not used.
 - Binary is `elara`; config is `~/.config/elara/config.kdl` in niri's KDL format.
 - `Mod` in binds is configurable and defaults to Option.
-- niri's animation clock stays in the core; window positions snap by default.
+- niri's animation clock stays in the core. The strip of columns and the workspaces glide
+  (horizontal-view-movement and workspace-switch); everything else, including window open,
+  close and resize, takes effect at once. `animations { off }` turns the glide off too.
 - Built as a cargo daemon for now. Keep macOS-facing code in `elara-macos` behind traits so a
   `.app` bundle can wrap it later.
 - License is GPL-3.0-or-later.

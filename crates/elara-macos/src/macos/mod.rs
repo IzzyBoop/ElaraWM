@@ -14,7 +14,7 @@ use objc2_foundation::MainThreadMarker;
 
 pub use self::backend::MacBackend;
 pub use self::keys::{character_for_keycode, KeyTap};
-pub use self::run_loop::run;
+pub use self::run_loop::{run, Wake};
 use crate::DisplayInfo;
 
 /// Returns whether "Displays have separate Spaces" is switched on in System Settings, under
