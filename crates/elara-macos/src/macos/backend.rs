@@ -129,17 +129,22 @@ struct App {
 struct Window {
     info: WindowInfo,
     element: CFRetained<AXUIElement>,
-    /// How many checks in a row have not found the window on screen.
-    absent_checks: u8,
+    /// How many checks in a row have disagreed with `info.on_other_space`.
+    space_votes: u8,
 }
 
-/// How often to look at which windows are on screen, while nothing else prompts it.
+/// How often to look at which windows are on screen.
 const SPACE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
 /// How many checks in a row must miss a window before it is taken to be on another Space. A
 /// window that is being moved can be missed once: the two sources of its frame are read a
 /// moment apart.
-const ABSENT_CHECKS: u8 = 3;
+const LEAVE_CHECKS: u8 = 3;
+
+/// How many checks in a row must find a window before it is taken to be on the managed
+/// Space. One is not enough: while macOS slides from one Space to the next, windows of both
+/// are on screen.
+const JOIN_CHECKS: u8 = 2;
 
 /// An application that could not be observed yet.
 struct PendingApp {
@@ -170,10 +175,9 @@ pub struct MacBackend {
     home_seen: bool,
     /// Whether the user is looking at the managed Space, as of the last pass.
     home_active: bool,
-    /// When the windows on screen were last looked at.
+    /// When the windows on screen were last looked at, or when the Space last changed if
+    /// that is later: a check waits out the interval after either.
     space_checked: Instant,
-    /// Whether to look again on the next pass, without waiting for the interval.
-    space_check_due: bool,
     /// The outlines last asked for, to tell when nothing changed.
     outlines: Vec<Outline>,
 }
@@ -205,7 +209,6 @@ impl MacBackend {
             home_seen: false,
             home_active: true,
             space_checked: Instant::now(),
-            space_check_due: false,
             outlines: Vec::new(),
         };
 
@@ -224,7 +227,7 @@ impl MacBackend {
 
         backend.sync_apps();
         // Windows on other Spaces start out unmanaged. No waiting here: nothing is moving.
-        backend.check_spaces(1);
+        backend.check_spaces(true);
         backend.refresh_focus();
         // Windows that existed before ElaraWM started are part of the initial state, which
         // callers read with `windows()`, not news.
@@ -488,10 +491,9 @@ impl MacBackend {
             Window {
                 info,
                 element,
-                absent_checks: 0,
+                space_votes: 0,
             },
         );
-        self.space_check_due = true;
         Some(id)
     }
 
@@ -513,16 +515,24 @@ impl MacBackend {
         if active != self.home_active {
             debug!(active, "managed Space is showing: changed");
             self.home_active = active;
-            // Coming back, look at once at what is here now.
-            self.space_check_due = true;
         }
     }
 
-    /// Works out which windows are on the managed Space, which must be the one showing.
-    /// A window is taken off it after `needed` checks in a row have missed it.
-    fn check_spaces(&mut self, needed: u8) {
+    /// Starts the wait before the next check over, and forgets what recent checks found.
+    /// Called when the Space changes: for a moment after that, what is on screen says little.
+    fn restart_space_checks(&mut self) {
         self.space_checked = Instant::now();
-        self.space_check_due = false;
+        for window in self.windows.values_mut() {
+            window.space_votes = 0;
+        }
+    }
+
+    /// Works out which windows are on the managed Space, if that is the one showing.
+    ///
+    /// A window changes sides only after several checks in a row say so, unless `at_once`
+    /// is set, which is for startup, when nothing is moving.
+    fn check_spaces(&mut self, at_once: bool) {
+        self.space_checked = Instant::now();
         if !self.home_active || !self.home_seen {
             trace!(
                 home_active = self.home_active,
@@ -535,6 +545,12 @@ impl MacBackend {
             debug!("the window server did not list the windows on screen");
             return;
         };
+        // The overlay must be in the very list the windows are looked up in. Whether the
+        // managed Space is showing was read a moment earlier and may no longer hold.
+        if !on_screen.has_window_of(std::process::id() as i32) {
+            trace!("the managed Space is not the one on screen");
+            return;
+        }
         trace!(?on_screen, "windows on screen");
 
         for (id, window) in &mut self.windows {
@@ -547,24 +563,26 @@ impl MacBackend {
                 // The frame on record may be a moment old.
                 || ax::frame(&window.element).is_some_and(|frame| on_screen.has(pid, frame));
 
-            if present {
-                window.absent_checks = 0;
-            } else {
-                window.absent_checks = window.absent_checks.saturating_add(1);
-            }
-            let on_other_space = if present {
-                false
-            } else if window.absent_checks >= needed {
-                true
-            } else {
+            let on_other_space = !present;
+            if window.info.on_other_space == on_other_space {
+                window.space_votes = 0;
                 continue;
-            };
-            if window.info.on_other_space != on_other_space {
-                debug!(?id, on_other_space, "window changed Space");
-                window.info.on_other_space = on_other_space;
-                self.events
-                    .push(Event::WindowOnOtherSpace(*id, on_other_space));
             }
+            window.space_votes = window.space_votes.saturating_add(1);
+            let needed = match (at_once, on_other_space) {
+                (true, _) => 1,
+                (false, true) => LEAVE_CHECKS,
+                (false, false) => JOIN_CHECKS,
+            };
+            if window.space_votes < needed {
+                continue;
+            }
+
+            debug!(?id, on_other_space, "window changed Space");
+            window.space_votes = 0;
+            window.info.on_other_space = on_other_space;
+            self.events
+                .push(Event::WindowOnOtherSpace(*id, on_other_space));
         }
     }
 
@@ -799,15 +817,15 @@ impl WindowBackend for MacBackend {
                         overlay.set(&display::displays(self.mtm), &self.outlines);
                     }
                 }
-                Raw::SpaceChanged => self.space_check_due = true,
+                Raw::SpaceChanged => self.restart_space_checks(),
             }
         }
 
         self.retry_pending_apps();
 
         self.refresh_home();
-        if self.space_check_due || self.space_checked.elapsed() >= SPACE_CHECK_INTERVAL {
-            self.check_spaces(ABSENT_CHECKS);
+        if self.space_checked.elapsed() >= SPACE_CHECK_INTERVAL {
+            self.check_spaces(false);
         }
         std::mem::take(&mut self.events)
     }

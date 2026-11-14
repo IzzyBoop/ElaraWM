@@ -96,4 +96,9 @@ impl OnScreen {
                 && close(bounds.h, frame.h)
         })
     }
+
+    /// Whether any ordinary window of process `pid` is on screen.
+    pub(super) fn has_window_of(&self, pid: i32) -> bool {
+        self.0.iter().any(|(owner, _)| *owner == pid)
+    }
 }
