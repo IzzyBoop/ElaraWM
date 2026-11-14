@@ -202,6 +202,10 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
             let Ok(state) = state.try_borrow() else {
                 return false;
             };
+            // On another macOS Space, the keys and the mouse are not ElaraWM's.
+            if state.is_dormant() {
+                return false;
+            }
             match event {
                 InputEvent::Key(event) => {
                     let response = key_handler.handle(state.config(), event);

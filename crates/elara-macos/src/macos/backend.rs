@@ -17,8 +17,9 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2_app_kit::{
     NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
-    NSWorkspace, NSWorkspaceDidActivateApplicationNotification,
-    NSWorkspaceDidLaunchApplicationNotification, NSWorkspaceDidTerminateApplicationNotification,
+    NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSWorkspaceDidActivateApplicationNotification, NSWorkspaceDidLaunchApplicationNotification,
+    NSWorkspaceDidTerminateApplicationNotification,
 };
 use objc2_application_services::{AXError, AXObserver, AXUIElement};
 use objc2_core_foundation::{kCFRunLoopDefaultMode, CFRetained, CFRunLoop, CFString};
@@ -29,7 +30,7 @@ use objc2_core_graphics::{
 use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
 use super::overlay::Overlay;
-use super::{accessibility_trusted, ax, display};
+use super::{accessibility_trusted, ax, display, spaces};
 use crate::{
     DisplayInfo, Error, Event, Outline, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
 };
@@ -73,6 +74,7 @@ enum Raw {
     AppsChanged,
     FrontmostAppChanged,
     DisplaysChanged,
+    SpaceChanged,
 }
 
 thread_local! {
@@ -127,7 +129,17 @@ struct App {
 struct Window {
     info: WindowInfo,
     element: CFRetained<AXUIElement>,
+    /// How many checks in a row have not found the window on screen.
+    absent_checks: u8,
 }
+
+/// How often to look at which windows are on screen, while nothing else prompts it.
+const SPACE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How many checks in a row must miss a window before it is taken to be on another Space. A
+/// window that is being moved can be missed once: the two sources of its frame are read a
+/// moment apart.
+const ABSENT_CHECKS: u8 = 3;
 
 /// An application that could not be observed yet.
 struct PendingApp {
@@ -151,8 +163,17 @@ pub struct MacBackend {
     events: Vec<Event>,
     next_id: u64,
     workspace_observers: Vec<ObserverToken>,
-    /// Made when there is first something to draw.
+    /// The windows ElaraWM draws in. They also mark the Space it manages.
     overlay: Option<Overlay>,
+    /// Whether the overlay has ever been seen on screen. Until it has, there is no telling
+    /// Spaces apart, and everything is taken to be on the managed one.
+    home_seen: bool,
+    /// Whether the user is looking at the managed Space, as of the last pass.
+    home_active: bool,
+    /// When the windows on screen were last looked at.
+    space_checked: Instant,
+    /// Whether to look again on the next pass, without waiting for the interval.
+    space_check_due: bool,
     /// The outlines last asked for, to tell when nothing changed.
     outlines: Vec<Outline>,
 }
@@ -181,8 +202,18 @@ impl MacBackend {
             next_id: 0,
             workspace_observers: Vec::new(),
             overlay: None,
+            home_seen: false,
+            home_active: true,
+            space_checked: Instant::now(),
+            space_check_due: false,
             outlines: Vec::new(),
         };
+
+        // Before any window is looked at: the overlay marks the Space that is showing now.
+        let mut overlay = Overlay::new();
+        overlay.set(&display::displays(mtm), &[]);
+        backend.overlay = Some(overlay);
+        backend.refresh_home();
 
         backend.observe_workspace();
         // SAFETY: the callback is a valid function for the whole life of the process and takes
@@ -192,6 +223,8 @@ impl MacBackend {
         }
 
         backend.sync_apps();
+        // Windows on other Spaces start out unmanaged. No waiting here: nothing is moving.
+        backend.check_spaces(1);
         backend.refresh_focus();
         // Windows that existed before ElaraWM started are part of the initial state, which
         // callers read with `windows()`, not news.
@@ -221,6 +254,9 @@ impl MacBackend {
             });
             observe(NSWorkspaceDidActivateApplicationNotification, || {
                 Raw::FrontmostAppChanged
+            });
+            observe(NSWorkspaceActiveSpaceDidChangeNotification, || {
+                Raw::SpaceChanged
             });
         }
     }
@@ -440,12 +476,96 @@ impl MacBackend {
             movable: ax::is_settable(&element, ax::POSITION),
             minimized: ax::boolean(&element, ax::MINIMIZED).unwrap_or(false),
             fullscreen: ax::boolean(&element, ax::FULLSCREEN).unwrap_or(false),
+            // A window that appears while the user is on another Space is most likely on
+            // that one. The next check of the managed Space settles it either way.
+            on_other_space: !self.home_active,
         };
         debug!(?id, pid, app_id = ?info.app_id, ?kind, "tracking window");
 
         self.events.push(Event::WindowOpened(info.clone()));
-        self.windows.insert(id, Window { info, element });
+        self.windows.insert(
+            id,
+            Window {
+                info,
+                element,
+                absent_checks: 0,
+            },
+        );
+        self.space_check_due = true;
         Some(id)
+    }
+
+    /// Whether ElaraWM can tell macOS Spaces apart, which it does by watching a window of
+    /// its own. If the system never lists that window as on screen, every window is taken
+    /// to be on the managed Space.
+    pub fn can_tell_spaces(&self) -> bool {
+        self.home_seen
+    }
+
+    /// Re-reads whether the user is looking at the managed Space.
+    fn refresh_home(&mut self) {
+        let listed = self
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| !overlay.on_screen_frames().is_empty());
+        self.home_seen |= listed;
+        let active = listed || !self.home_seen;
+        if active != self.home_active {
+            debug!(active, "managed Space is showing: changed");
+            self.home_active = active;
+            // Coming back, look at once at what is here now.
+            self.space_check_due = true;
+        }
+    }
+
+    /// Works out which windows are on the managed Space, which must be the one showing.
+    /// A window is taken off it after `needed` checks in a row have missed it.
+    fn check_spaces(&mut self, needed: u8) {
+        self.space_checked = Instant::now();
+        self.space_check_due = false;
+        if !self.home_active || !self.home_seen {
+            trace!(
+                home_active = self.home_active,
+                home_seen = self.home_seen,
+                "not checking which windows are on screen"
+            );
+            return;
+        }
+        let Some(on_screen) = spaces::OnScreen::read() else {
+            debug!("the window server did not list the windows on screen");
+            return;
+        };
+        trace!(?on_screen, "windows on screen");
+
+        for (id, window) in &mut self.windows {
+            // Neither kind is on screen, and neither is managed while it lasts.
+            if window.info.minimized || window.info.fullscreen {
+                continue;
+            }
+            let pid = window.info.pid;
+            let present = on_screen.has(pid, window.info.frame)
+                // The frame on record may be a moment old.
+                || ax::frame(&window.element).is_some_and(|frame| on_screen.has(pid, frame));
+
+            if present {
+                window.absent_checks = 0;
+            } else {
+                window.absent_checks = window.absent_checks.saturating_add(1);
+            }
+            let on_other_space = if present {
+                false
+            } else if window.absent_checks >= needed {
+                true
+            } else {
+                continue;
+            };
+            if window.info.on_other_space != on_other_space {
+                debug!(?id, on_other_space, "window changed Space");
+                window.info.on_other_space = on_other_space;
+                self.events
+                    .push(Event::WindowOnOtherSpace(*id, on_other_space));
+            }
+        }
     }
 
     fn untrack_window(&mut self, id: WindowId) {
@@ -643,6 +763,10 @@ impl WindowBackend for MacBackend {
         ax::perform(&button, ax::ACTION_PRESS).map_err(|err| Self::error(id, err))
     }
 
+    fn home_space_active(&self) -> bool {
+        self.home_active
+    }
+
     fn set_outlines(&mut self, outlines: &[Outline]) {
         // This is called on every pass; most of them change nothing.
         if self.outlines == outlines && (self.overlay.is_some() || outlines.is_empty()) {
@@ -670,11 +794,21 @@ impl WindowBackend for MacBackend {
                     if self.events.last() != Some(&Event::DisplaysChanged) {
                         self.events.push(Event::DisplaysChanged);
                     }
+                    // A new display needs an overlay of its own.
+                    if let Some(overlay) = &mut self.overlay {
+                        overlay.set(&display::displays(self.mtm), &self.outlines);
+                    }
                 }
+                Raw::SpaceChanged => self.space_check_due = true,
             }
         }
 
         self.retry_pending_apps();
+
+        self.refresh_home();
+        if self.space_check_due || self.space_checked.elapsed() >= SPACE_CHECK_INTERVAL {
+            self.check_spaces(ABSENT_CHECKS);
+        }
         std::mem::take(&mut self.events)
     }
 }

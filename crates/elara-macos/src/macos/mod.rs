@@ -6,6 +6,7 @@ mod display;
 mod keys;
 mod overlay;
 mod run_loop;
+mod spaces;
 
 use objc2_application_services::{
     kAXTrustedCheckOptionPrompt, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,

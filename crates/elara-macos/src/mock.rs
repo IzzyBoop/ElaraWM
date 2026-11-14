@@ -34,6 +34,8 @@ pub struct MockBackend {
     frame_requests: Vec<(WindowId, Rect)>,
     /// The outlines last asked for.
     outlines: Vec<Outline>,
+    /// Whether the user is looking at another macOS Space.
+    away: bool,
 }
 
 impl MockBackend {
@@ -111,6 +113,7 @@ impl MockBackend {
             movable: true,
             minimized: false,
             fullscreen: false,
+            on_other_space: false,
         };
         adjust(&mut info);
         info.id = id;
@@ -176,6 +179,22 @@ impl MockBackend {
                 self.events.push(Event::WindowMinimized(id, minimized));
             }
         }
+    }
+
+    /// The window is moved to another macOS Space, or back.
+    pub fn set_on_other_space(&mut self, id: WindowId, on_other_space: bool) {
+        if let Some(window) = self.windows.get_mut(&id) {
+            if window.info.on_other_space != on_other_space {
+                window.info.on_other_space = on_other_space;
+                self.events
+                    .push(Event::WindowOnOtherSpace(id, on_other_space));
+            }
+        }
+    }
+
+    /// The user switches to another macOS Space, or back to the one that is managed.
+    pub fn set_home_space_active(&mut self, active: bool) {
+        self.away = !active;
     }
 
     /// The window enters or leaves native fullscreen.
@@ -301,6 +320,10 @@ impl WindowBackend for MockBackend {
 
     fn drain_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    fn home_space_active(&self) -> bool {
+        !self.away
     }
 
     fn set_outlines(&mut self, outlines: &[Outline]) {

@@ -2,7 +2,7 @@
 
 use elara::config::default_config;
 use elara::State;
-use elara_macos::{DisplayId, DisplayInfo, MockBackend, Rect, WindowId};
+use elara_macos::{DisplayId, DisplayInfo, MockBackend, Rect, WindowBackend, WindowId};
 use niri_config::Action;
 
 const LAPTOP: Rect = Rect::new(0., 0., 1800., 1169.);
@@ -168,4 +168,96 @@ fn the_dock_appearing_is_noticed_without_an_event() {
     state.tick();
 
     assert_eq!(frame(&state, a), Rect::new(16., 55., 876., 1050. - 32.));
+}
+
+// macOS Spaces.
+
+#[test]
+fn a_window_on_another_space_is_left_alone() {
+    let mut backend = MockBackend::with_laptop_display();
+    let here = backend.open_window("here", "here", Rect::new(300., 200., 640., 480.));
+    let elsewhere_frame = Rect::new(100., 100., 700., 500.);
+    let elsewhere = backend.open_window_with("elsewhere", "elsewhere", elsewhere_frame, |info| {
+        info.on_other_space = true;
+    });
+    let mut state = State::new(backend, default_config());
+
+    // Only the window on this Space is tiled; the other keeps its frame and takes no room.
+    assert_eq!(state.layout().windows().count(), 1);
+    assert_eq!(state.backend().frame(elsewhere), elsewhere_frame);
+    let alone = state.backend().frame(here);
+
+    // A window that opens over there is not tiled either.
+    let later = state
+        .backend_mut()
+        .open_window_with("later", "later", elsewhere_frame, |info| {
+            info.on_other_space = true
+        });
+    state.tick();
+    assert_eq!(state.layout().windows().count(), 1);
+    assert_eq!(state.backend().frame(later), elsewhere_frame);
+    assert_eq!(state.backend().frame(here), alone);
+}
+
+#[test]
+fn a_window_joins_when_it_is_brought_to_this_space_and_leaves_when_it_is_taken_away() {
+    let mut backend = MockBackend::with_laptop_display();
+    let here = backend.open_window("here", "here", Rect::new(300., 200., 640., 480.));
+    let mover = backend.open_window_with(
+        "mover",
+        "mover",
+        Rect::new(100., 100., 700., 500.),
+        |info| info.on_other_space = true,
+    );
+    let mut state = State::new(backend, default_config());
+    let alone = state.backend().frame(here);
+
+    state.backend_mut().set_on_other_space(mover, false);
+    state.tick();
+    assert_eq!(state.layout().windows().count(), 2);
+    // It became a column next to the one that was there.
+    assert_eq!(
+        state.backend().frame(mover).x,
+        state.backend().frame(here).max_x() + 16.
+    );
+
+    state.backend_mut().set_on_other_space(mover, true);
+    state.tick();
+    assert_eq!(state.layout().windows().count(), 1);
+    assert_eq!(state.backend().frame(here), alone);
+}
+
+#[test]
+fn nothing_is_focused_while_another_space_is_showing() {
+    let mut backend = MockBackend::with_laptop_display();
+    let a = backend.open_window("a", "a", Rect::new(300., 200., 640., 480.));
+    let b = backend.open_window("b", "b", Rect::new(300., 200., 640., 480.));
+    let mut state = State::new(backend, default_config());
+    state.do_action(Action::FocusColumnFirst);
+    assert_eq!(state.backend().focused_window(), Some(a));
+    assert!(!state.is_dormant());
+
+    // The user goes to another Space and clicks a window there.
+    state.backend_mut().set_home_space_active(false);
+    let other = state.backend_mut().open_window_with(
+        "other",
+        "other",
+        Rect::new(100., 100., 700., 500.),
+        |info| info.on_other_space = true,
+    );
+    state.backend_mut().user_focus(other);
+    state.tick();
+    assert!(state.is_dormant());
+
+    // Whatever the layout does meanwhile, it must not take focus back: macOS would switch
+    // Spaces to follow it.
+    state.do_action(Action::FocusColumnRight);
+    assert_eq!(state.backend().focused_window(), Some(other));
+
+    // Back on the managed Space, the keys work again.
+    state.backend_mut().set_home_space_active(true);
+    state.backend_mut().user_focus(a);
+    state.tick();
+    state.do_action(Action::FocusColumnRight);
+    assert_eq!(state.backend().focused_window(), Some(b));
 }

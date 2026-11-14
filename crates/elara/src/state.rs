@@ -67,8 +67,8 @@ pub struct State<B: WindowBackend> {
     pub(crate) displays: Vec<Display>,
     /// Every window in the layout.
     pub(crate) windows: HashMap<WindowId, Window>,
-    /// Windows that exist but are kept out of the layout because they are minimized or in
-    /// native fullscreen. They rejoin it when that ends.
+    /// Windows that exist but are kept out of the layout because they are minimized, in
+    /// native fullscreen, or on another macOS Space. They rejoin it when that ends.
     sidelined: HashMap<WindowId, WindowInfo>,
     /// Whether the layout's idea of the focused window may differ from the system's.
     pub(crate) focus_dirty: bool,
@@ -283,6 +283,9 @@ impl<B: WindowBackend> State<B> {
             Event::WindowFullscreen(id, fullscreen) => {
                 self.set_sidelined(id, fullscreen, |info| &mut info.fullscreen);
             }
+            Event::WindowOnOtherSpace(id, elsewhere) => {
+                self.set_sidelined(id, elsewhere, |info| &mut info.on_other_space);
+            }
             // Like frame events, a focus event is handled later than it happened, and several
             // can be queued. Which window the event names is only a hint; what counts is which
             // window has focus now. If that is not a managed window, the layout keeps its
@@ -380,7 +383,7 @@ impl<B: WindowBackend> State<B> {
         if info.kind == WindowKind::Other || self.windows.contains_key(&info.id) {
             return;
         }
-        if info.minimized || info.fullscreen {
+        if info.minimized || info.fullscreen || info.on_other_space {
             self.sidelined.insert(info.id, info);
             return;
         }
@@ -547,8 +550,8 @@ impl<B: WindowBackend> State<B> {
         self.focus_dirty = true;
     }
 
-    /// Takes a window out of the layout while it is minimized or in native fullscreen, and
-    /// puts it back afterwards.
+    /// Takes a window out of the layout while it is minimized, in native fullscreen or on
+    /// another macOS Space, and puts it back afterwards.
     fn set_sidelined(
         &mut self,
         id: WindowId,
@@ -557,7 +560,7 @@ impl<B: WindowBackend> State<B> {
     ) {
         if let Some(info) = self.sidelined.get_mut(&id) {
             *field(info) = value;
-            if !info.minimized && !info.fullscreen {
+            if !info.minimized && !info.fullscreen && !info.on_other_space {
                 let mut info = self.sidelined.remove(&id).unwrap();
                 // The frame recorded when the window was sidelined is stale by now.
                 if let Some(current) = self.backend.windows().into_iter().find(|w| w.id == id) {
@@ -590,6 +593,7 @@ impl<B: WindowBackend> State<B> {
             movable: true,
             minimized: false,
             fullscreen: false,
+            on_other_space: false,
         };
         *field(&mut info) = true;
         self.remove_window(id);
@@ -845,6 +849,15 @@ impl<B: WindowBackend> State<B> {
         self.focus_dirty = true;
     }
 
+    /// Whether the user is looking at a macOS Space other than the one ElaraWM manages.
+    ///
+    /// ElaraWM arranges the windows of one Space: the one that was showing when it started.
+    /// While another is showing, none of its windows are in front of the user, and it should
+    /// neither take their keys nor pull them back by focusing a window.
+    pub fn is_dormant(&self) -> bool {
+        !self.backend.home_space_active()
+    }
+
     /// Whether the `quit` action has run.
     pub fn should_quit(&self) -> bool {
         self.quit_requested
@@ -1079,6 +1092,11 @@ impl<B: WindowBackend> State<B> {
     /// window closed and niri's rules, not the system's, pick the successor.
     fn sync_focus(&mut self) {
         if !std::mem::take(&mut self.focus_dirty) {
+            return;
+        }
+        // Focusing a window on a Space the user is not looking at would make macOS switch to
+        // that Space under them.
+        if self.is_dormant() {
             return;
         }
         let Some(wanted) = self.layout.focus().map(|window| window.window_id()) else {
