@@ -13,6 +13,10 @@
 //   sideways, or the workspaces up and down. This stands in for niri's three-finger swipe,
 //   which macOS keeps for itself. It needs no bind. The mouse wheel uses the
 //   `WheelScroll...` binds below.
+// - Holding Mod and dragging a window with the left mouse button moves it, and with the right
+//   button resizes it by the nearest edge or corner, as in niri. This needs no bind either.
+//   It replaces what macOS does with an Option-click on a window, which is to hide the
+//   application you were in.
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.
@@ -93,6 +97,7 @@ input {
     // focus-follows-mouse max-scroll-amount="0%"
 }
 
+// ElaraWM: macOS controls displays. This section is ignored, even without its "/-".
 // You can configure outputs by their name, which you can find
 // by running `niri msg outputs` while inside a niri instance.
 // The built-in laptop monitor is usually called "eDP-1".

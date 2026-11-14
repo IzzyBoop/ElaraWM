@@ -2,12 +2,14 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use elara_layout::layout::{
     ConfigureIntent, InteractiveResizeData, LayoutElement, LayoutElementRenderSnapshot, SizingMode,
 };
 use elara_layout::render_helpers::offscreen::OffscreenData;
 use elara_layout::utils::transaction::Transaction;
+use elara_layout::utils::ResizeEdge;
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{Rect, WindowId, WindowInfo};
 use smithay::output::{self, Output};
@@ -64,6 +66,23 @@ struct Inner {
     is_activated: Cell<bool>,
     is_active_in_column: Cell<bool>,
     is_floating: Cell<bool>,
+
+    /// The interactive resize the window is part of, if any.
+    interactive_resize: Cell<Option<InteractiveResize>>,
+    /// When a resize of this window was last started with the mouse, and by which edges.
+    /// Two in quick succession are niri's double-click gestures.
+    last_interactive_resize_start: Cell<Option<(Duration, ResizeEdge)>>,
+}
+
+/// Where a window is in an interactive resize. niri's `Mapped` has the same states, spread
+/// over a Wayland configure and commit.
+#[derive(Debug, Clone, Copy)]
+enum InteractiveResize {
+    /// The edge is being dragged.
+    Ongoing(InteractiveResizeData),
+    /// The drag ended. The window may still owe the layout the last size that was asked of
+    /// it, and the layout needs to know which edges were dragged when that size arrives.
+    Ending(InteractiveResizeData),
 }
 
 fn size_of(frame: Rect) -> Size<i32, Logical> {
@@ -100,6 +119,8 @@ impl Window {
             is_activated: Cell::new(false),
             is_active_in_column: Cell::new(true),
             is_floating: Cell::new(false),
+            interactive_resize: Cell::new(None),
+            last_interactive_resize_start: Cell::new(None),
         };
         Self {
             inner: Rc::new(inner),
@@ -109,6 +130,19 @@ impl Window {
 
     pub fn window_id(&self) -> WindowId {
         self.inner.id
+    }
+
+    /// When a resize of this window was last started with the mouse, and by which edges.
+    pub fn last_interactive_resize_start(&self) -> &Cell<Option<(Duration, ResizeEdge)>> {
+        &self.inner.last_interactive_resize_start
+    }
+
+    /// Forgets an interactive resize that has ended, once the window has been given its last
+    /// size.
+    pub fn finish_interactive_resize(&self) {
+        if let Some(InteractiveResize::Ending(_)) = self.inner.interactive_resize.get() {
+            self.inner.interactive_resize.set(None);
+        }
     }
 
     pub fn pid(&self) -> i32 {
@@ -394,12 +428,23 @@ impl LayoutElement for Window {
         None
     }
 
-    fn set_interactive_resize(&mut self, _data: Option<InteractiveResizeData>) {}
+    fn set_interactive_resize(&mut self, data: Option<InteractiveResizeData>) {
+        let resize = &self.inner.interactive_resize;
+        if let Some(data) = data {
+            resize.set(Some(InteractiveResize::Ongoing(data)));
+        } else if let Some(InteractiveResize::Ongoing(data)) = resize.get() {
+            resize.set(Some(InteractiveResize::Ending(data)));
+        }
+    }
 
-    fn cancel_interactive_resize(&mut self) {}
+    fn cancel_interactive_resize(&mut self) {
+        self.inner.interactive_resize.set(None);
+    }
 
     fn interactive_resize_data(&self) -> Option<InteractiveResizeData> {
-        None
+        match self.inner.interactive_resize.get()? {
+            InteractiveResize::Ongoing(data) | InteractiveResize::Ending(data) => Some(data),
+        }
     }
 
     fn on_commit(&mut self, _serial: Serial) {}

@@ -50,6 +50,11 @@ changes. If an edit has an error, the error is printed and the previous config s
   sideways, or the workspaces up and down, like niri's three-finger swipe. The mouse wheel
   triggers the `WheelScroll…` binds; by default `Mod`+wheel switches workspaces and
   `Mod+Shift`+wheel moves between columns.
+- Holding `Mod` and dragging a window with the left mouse button moves it; with the right
+  button, it resizes the window by the nearest edge or corner. A tiled window that is dragged
+  leaves its column and lands where it is dropped. Pressing the other button while moving
+  switches it between floating and tiled. While ElaraWM runs, this replaces the macOS
+  behaviour of an Option-click hiding the application you were in.
 - Window rules match `app-id` against the application's bundle identifier, such as
   `com.apple.Terminal`.
 - Output names are display names, such as `"Built-in Retina Display"`.

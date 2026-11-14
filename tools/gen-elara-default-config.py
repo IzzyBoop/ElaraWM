@@ -35,6 +35,10 @@ HEADER = """\
 //   sideways, or the workspaces up and down. This stands in for niri's three-finger swipe,
 //   which macOS keeps for itself. It needs no bind. The mouse wheel uses the
 //   `WheelScroll...` binds below.
+// - Holding Mod and dragging a window with the left mouse button moves it, and with the right
+//   button resizes it by the nearest edge or corner, as in niri. This needs no bind either.
+//   It replaces what macOS does with an Option-click on a window, which is to hide the
+//   application you were in.
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.
@@ -47,6 +51,13 @@ HEADER = """\
 
 # (line that must exist exactly once, replacement lines)
 REPLACEMENTS = [
+    (
+        "// You can configure outputs by their name, which you can find",
+        [
+            '// ElaraWM: macOS controls displays. This section is ignored, even without its "/-".',
+            "// You can configure outputs by their name, which you can find",
+        ],
+    ),
     (
         'spawn-at-startup "waybar"',
         [

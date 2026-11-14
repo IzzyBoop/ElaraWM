@@ -2322,6 +2322,16 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    // ELARA: niri draws the window being moved wherever the pointer is. ElaraWM has to put
+    // the real window there, so it needs the position that niri only computes while rendering.
+    /// Returns the window being moved interactively, the output it is over, and the position
+    /// of the window within that output.
+    pub fn interactive_moved_window_location(&self) -> Option<(&W, &Output, Point<f64, Logical>)> {
+        let move_ = self.interactive_move.as_ref()?.moving()?;
+        let pos = move_.tile_render_location(1.) + move_.tile.window_loc();
+        Some((move_.tile.window(), &move_.output, pos))
+    }
+
     /// Returns the window under the cursor and the hit type.
     pub fn window_under(
         &self,

@@ -117,6 +117,7 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     use std::time::{Duration, Instant};
 
     use elara::keys::KeyHandler;
+    use elara::pointer::{PointerHandler, PointerInput};
     use elara::scroll::{ScrollHandler, ScrollInput};
     use elara::State;
     use elara_macos::{request_accessibility, run_main_loop, InputEvent, KeyTap, MacBackend, Wake};
@@ -125,6 +126,12 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     /// applications, which takes a few milliseconds, so this is the pause between frames
     /// rather than their period.
     const FRAME_INTERVAL: Duration = Duration::from_millis(8);
+
+    /// Something the input tap took, waiting for the loop to carry it out.
+    enum Input {
+        Scroll(ScrollInput),
+        Pointer(PointerInput),
+    }
 
     // Shows the system dialog pointing at the right settings pane if the permission is missing.
     if !request_accessibility() {
@@ -177,13 +184,14 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
         state.borrow().layout().windows().count()
     );
 
-    // Keys and scrolling arrive through the tap, between passes of the loop below. The tap
-    // only decides whether an event is for ElaraWM; what it asks for waits here until the loop
-    // carries it out. Finger movement is queued like everything else, so that however many
-    // scroll events arrive while windows are being moved, they are moved once.
+    // Keys, scrolling and the mouse arrive through the tap, between passes of the loop below. The
+    // tap only decides whether an event is for ElaraWM; what it asks for waits here until the loop
+    // carries it out. Finger and pointer movement is queued like everything else, so that
+    // however many such events arrive while windows are being moved, they are moved once.
     let inputs = Rc::new(RefCell::new(VecDeque::new()));
     let mut key_handler = KeyHandler::new();
     let mut scroll_handler = ScrollHandler::new();
+    let mut pointer_handler = PointerHandler::new();
     let tap = KeyTap::new({
         let state = Rc::clone(&state);
         let inputs = Rc::clone(&inputs);
@@ -199,7 +207,8 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                     let response = key_handler.handle(state.config(), event);
                     if let Some(action) = response.action {
                         tracing::debug!(repeat = event.is_repeat, "bound key pressed");
-                        inputs.borrow_mut().push_back(ScrollInput::Action(action));
+                        let input = Input::Scroll(ScrollInput::Action(action));
+                        inputs.borrow_mut().push_back(input);
                     } else if event.pressed && event.modifiers != Default::default() {
                         // Only the key code and modifiers, never what is being typed.
                         tracing::trace!(
@@ -214,8 +223,18 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                 InputEvent::Scroll(event) => {
                     let response = scroll_handler.handle(state.config(), event, Instant::now());
                     if let Some(input) = response.input {
-                        inputs.borrow_mut().push_back(input);
+                        inputs.borrow_mut().push_back(Input::Scroll(input));
                     }
+                    response.swallow
+                }
+                InputEvent::Mouse(event) => {
+                    let response =
+                        pointer_handler.handle(state.config(), event, |button, position| {
+                            state.can_grab(button, position)
+                        });
+                    inputs
+                        .borrow_mut()
+                        .extend(response.inputs.into_iter().map(Input::Pointer));
                     response.swallow
                 }
             }
@@ -223,7 +242,8 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     });
     if tap.is_none() {
         tracing::warn!(
-            "could not install the input event tap; key bindings and scrolling will not work"
+            "could not install the input event tap; key bindings, scrolling and dragging \
+             windows will not work"
         );
     }
 
@@ -261,13 +281,14 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
             let queued: Vec<_> = inputs.borrow_mut().drain(..).collect();
             for input in queued {
                 match input {
-                    ScrollInput::Action(action) => {
+                    Input::Scroll(ScrollInput::Action(action)) => {
                         state.do_action(action);
                     }
-                    ScrollInput::GestureUpdate { delta_x, delta_y } => {
+                    Input::Scroll(ScrollInput::GestureUpdate { delta_x, delta_y }) => {
                         state.gesture_update(delta_x, delta_y);
                     }
-                    ScrollInput::GestureEnd => state.gesture_end(),
+                    Input::Scroll(ScrollInput::GestureEnd) => state.gesture_end(),
+                    Input::Pointer(input) => state.pointer_input(input),
                 }
             }
             state.tick();
