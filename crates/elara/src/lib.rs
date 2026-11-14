@@ -12,6 +12,7 @@ mod actions;
 pub mod binds;
 pub mod config;
 pub mod keys;
+pub mod scroll;
 mod state;
 mod window;
 

@@ -29,6 +29,19 @@ const MAX_APPLY_ROUNDS: usize = 3;
 /// How long after asking the system to focus a window its confirmation is still expected.
 const FOCUS_ECHO_WINDOW: Duration = Duration::from_secs(1);
 
+/// How far the fingers must move before a gesture is taken to be horizontal or vertical.
+/// niri's threshold for its three-finger swipe.
+const GESTURE_DECISION_DISTANCE: f64 = 16.;
+
+/// A two-finger gesture being fed to the layout.
+#[derive(Debug, Clone, Copy)]
+enum Gesture {
+    /// Not yet clear whether it goes sideways or up and down. Holds the movement so far.
+    Undecided { x: f64, y: f64 },
+    /// The layout has been told which kind it is.
+    Decided,
+}
+
 /// A display and the layout output that stands for it.
 pub(crate) struct Display {
     pub(crate) info: DisplayInfo,
@@ -62,6 +75,10 @@ pub struct State<B: WindowBackend> {
     /// confirmation arrives later, possibly after further actions, and must not be mistaken
     /// for the user switching back.
     pending_focus: Option<(WindowId, Instant)>,
+    /// The window that had the system's keyboard focus when it was last looked at.
+    system_focus: Option<WindowId>,
+    /// The two-finger gesture in progress, if any.
+    gesture: Option<Gesture>,
     /// Windows in the order they last had focus, most recent last.
     pub(crate) focus_history: Vec<WindowId>,
     /// Set by the `quit` action.
@@ -91,6 +108,8 @@ impl<B: WindowBackend> State<B> {
             sidelined: HashMap::new(),
             focus_dirty: false,
             pending_focus: None,
+            system_focus: None,
+            gesture: None,
             focus_history: Vec::new(),
             quit_requested: false,
             is_at_startup: true,
@@ -115,7 +134,8 @@ impl<B: WindowBackend> State<B> {
         // Whatever the backend queued while being read is already reflected above.
         state.backend.drain_events();
 
-        if let Some(focused) = state.backend.focused_window() {
+        state.system_focus = state.backend.focused_window();
+        if let Some(focused) = state.system_focus {
             if state.windows.contains_key(&focused) {
                 state.layout.activate_window(&focused);
             }
@@ -199,20 +219,32 @@ impl<B: WindowBackend> State<B> {
             Event::WindowFullscreen(id, fullscreen) => {
                 self.set_sidelined(id, fullscreen, |info| &mut info.fullscreen);
             }
-            Event::FocusChanged(Some(id)) => {
+            // Like frame events, a focus event is handled later than it happened, and several
+            // can be queued. Which window the event names is only a hint; what counts is which
+            // window has focus now. If that is not a managed window, the layout keeps its
+            // focus and will hear about the next managed window that gets it.
+            Event::FocusChanged(_) => {
+                let current = self.backend.focused_window();
+                // Nothing changed since the last look: this event is about a change that has
+                // already been dealt with.
+                if current == std::mem::replace(&mut self.system_focus, current) {
+                    return;
+                }
+                let Some(current) = current else {
+                    return;
+                };
                 // The system confirming a focus change ElaraWM asked for is not news.
-                if let Some((pending, since)) = self.pending_focus.take() {
-                    if pending == id && since.elapsed() < FOCUS_ECHO_WINDOW {
+                if let Some((pending, since)) = self.pending_focus {
+                    if pending == current && since.elapsed() < FOCUS_ECHO_WINDOW {
+                        self.pending_focus = None;
                         return;
                     }
                 }
-                if self.windows.contains_key(&id) {
-                    self.layout.activate_window(&id);
+                let layout_focus = self.layout.focus().map(|window| window.window_id());
+                if layout_focus != Some(current) && self.windows.contains_key(&current) {
+                    self.layout.activate_window(&current);
                 }
             }
-            // Focus went to something that is not managed. The layout keeps its focus; it will
-            // hear about the next managed window that gets it.
-            Event::FocusChanged(None) => {}
             Event::DisplaysChanged => self.sync_displays(),
         }
     }
@@ -653,6 +685,57 @@ impl<B: WindowBackend> State<B> {
                 self.focus_history.push(focused);
             }
         }
+    }
+
+    /// Feeds finger movement to niri's gestures: sideways drags the strip of columns, up and
+    /// down drags the stack of workspaces. The deltas are in points, in the direction content
+    /// should move.
+    ///
+    /// This is niri's handling of a three-finger touchpad swipe. The windows follow on the
+    /// next [`tick()`](Self::tick).
+    pub fn gesture_update(&mut self, delta_x: f64, delta_y: f64) {
+        // The layout takes the movement of the view, which is the opposite of the movement
+        // of the content under it.
+        let (delta_x, delta_y) = (-delta_x, -delta_y);
+        let timestamp = get_monotonic_time();
+
+        if let Gesture::Undecided { x, y } = self
+            .gesture
+            .get_or_insert(Gesture::Undecided { x: 0., y: 0. })
+        {
+            *x += delta_x;
+            *y += delta_y;
+            let (x, y) = (*x, *y);
+
+            // Check if the gesture moved far enough to decide. Threshold copied from niri.
+            if x * x + y * y >= GESTURE_DECISION_DISTANCE * GESTURE_DECISION_DISTANCE {
+                self.gesture = Some(Gesture::Decided);
+                if let Some(output) = self.layout.active_output().cloned() {
+                    if x.abs() > y.abs() {
+                        self.layout.view_offset_gesture_begin(&output, None, true);
+                    } else {
+                        self.layout.workspace_switch_gesture_begin(&output, true);
+                    }
+                }
+            }
+        }
+
+        self.layout
+            .workspace_switch_gesture_update(delta_y, timestamp, true);
+        self.layout
+            .view_offset_gesture_update(delta_x, timestamp, true);
+    }
+
+    /// Ends the gesture: the layout settles on the nearest column or workspace, taking the
+    /// speed of the fingers into account.
+    pub fn gesture_end(&mut self) {
+        if self.gesture.take().is_none() {
+            return;
+        }
+        self.layout.workspace_switch_gesture_end(Some(true));
+        self.layout.view_offset_gesture_end(Some(true));
+        // Where the layout settled decides which window is focused now.
+        self.focus_dirty = true;
     }
 
     /// Whether the `quit` action has run.

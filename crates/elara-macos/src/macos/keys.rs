@@ -1,4 +1,5 @@
-//! Seeing and intercepting key presses system-wide, through a CoreGraphics event tap.
+//! Seeing and intercepting key presses and scrolling system-wide, through a CoreGraphics event
+//! tap.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -12,14 +13,14 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::MainThreadMarker;
 
-use crate::{KeyEvent, KeyModifiers};
+use crate::{InputEvent, KeyEvent, KeyModifiers, ScrollEvent, ScrollPhase};
 
 /// The event types the system sends to a tap it has switched off, either because the callback
 /// took too long or because the user is typing into a secure field.
 const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 
-type Handler = Box<dyn FnMut(&KeyEvent) -> bool>;
+type Handler = Box<dyn FnMut(&InputEvent) -> bool>;
 
 struct Context {
     handler: Handler,
@@ -131,32 +132,60 @@ unsafe extern "C-unwind" fn tap_callback(
         return event.as_ptr();
     }
 
-    let pressed = match event_type {
-        CGEventType::KeyDown => true,
-        CGEventType::KeyUp => false,
+    let flags = CGEvent::flags(Some(event_ref));
+    let modifiers = KeyModifiers {
+        control: flags.contains(CGEventFlags::MaskControl),
+        shift: flags.contains(CGEventFlags::MaskShift),
+        option: flags.contains(CGEventFlags::MaskAlternate),
+        command: flags.contains(CGEventFlags::MaskCommand),
+    };
+    let field = |field| CGEvent::integer_value_field(Some(event_ref), field);
+
+    let input = match event_type {
+        CGEventType::KeyDown | CGEventType::KeyUp => {
+            let keycode = field(CGEventField::KeyboardEventKeycode) as u16;
+            InputEvent::Key(KeyEvent {
+                keycode,
+                character: unmodified_character(keycode),
+                modifiers,
+                pressed: event_type == CGEventType::KeyDown,
+                is_repeat: field(CGEventField::KeyboardEventAutorepeat) != 0,
+            })
+        }
+        CGEventType::ScrollWheel => {
+            let continuous = field(CGEventField::ScrollWheelEventIsContinuous) != 0;
+            // Trackpads report points; wheels report steps.
+            let (delta_y, delta_x) = if continuous {
+                (
+                    field(CGEventField::ScrollWheelEventPointDeltaAxis1),
+                    field(CGEventField::ScrollWheelEventPointDeltaAxis2),
+                )
+            } else {
+                (
+                    field(CGEventField::ScrollWheelEventDeltaAxis1),
+                    field(CGEventField::ScrollWheelEventDeltaAxis2),
+                )
+            };
+            // `CGScrollPhase`: began 1, changed 2, ended 4, cancelled 8, may begin 128.
+            let phase = match field(CGEventField::ScrollWheelEventScrollPhase) {
+                1 => ScrollPhase::Began,
+                2 => ScrollPhase::Changed,
+                4 | 8 => ScrollPhase::Ended,
+                _ => ScrollPhase::None,
+            };
+            InputEvent::Scroll(ScrollEvent {
+                delta_x: delta_x as f64,
+                delta_y: delta_y as f64,
+                continuous,
+                phase,
+                momentum: field(CGEventField::ScrollWheelEventMomentumPhase) != 0,
+                modifiers,
+            })
+        }
         _ => return event.as_ptr(),
     };
 
-    let keycode =
-        CGEvent::integer_value_field(Some(event_ref), CGEventField::KeyboardEventKeycode) as u16;
-    let is_repeat =
-        CGEvent::integer_value_field(Some(event_ref), CGEventField::KeyboardEventAutorepeat) != 0;
-    let flags = CGEvent::flags(Some(event_ref));
-
-    let key_event = KeyEvent {
-        keycode,
-        character: unmodified_character(keycode),
-        modifiers: KeyModifiers {
-            control: flags.contains(CGEventFlags::MaskControl),
-            shift: flags.contains(CGEventFlags::MaskShift),
-            option: flags.contains(CGEventFlags::MaskAlternate),
-            command: flags.contains(CGEventFlags::MaskCommand),
-        },
-        pressed,
-        is_repeat,
-    };
-
-    if (context.handler)(&key_event) {
+    if (context.handler)(&input) {
         // Returning null drops the event: no application sees it.
         std::ptr::null_mut()
     } else {
@@ -164,9 +193,9 @@ unsafe extern "C-unwind" fn tap_callback(
     }
 }
 
-/// A system-wide tap on key presses and releases.
+/// A system-wide tap on key presses, key releases and scrolling.
 ///
-/// While it exists, every key event is shown to the handler before any application gets it.
+/// While it exists, every such event is shown to the handler before any application gets it.
 /// The handler returns `true` to swallow the event. It runs on the main thread from the main
 /// run loop, and must return quickly: the system switches off a tap that stalls.
 pub struct KeyTap {
@@ -182,7 +211,7 @@ impl KeyTap {
     /// # Panics
     ///
     /// Panics if called from a thread other than the main thread.
-    pub fn new(handler: impl FnMut(&KeyEvent) -> bool + 'static) -> Option<Self> {
+    pub fn new(handler: impl FnMut(&InputEvent) -> bool + 'static) -> Option<Self> {
         MainThreadMarker::new().expect("the key tap must be created on the main thread");
 
         let context = Box::into_raw(Box::new(Context {
@@ -190,7 +219,9 @@ impl KeyTap {
             port: None,
         }));
 
-        let mask: CGEventMask = (1 << CGEventType::KeyDown.0) | (1 << CGEventType::KeyUp.0);
+        let mask: CGEventMask = (1 << CGEventType::KeyDown.0)
+            | (1 << CGEventType::KeyUp.0)
+            | (1 << CGEventType::ScrollWheel.0);
         // SAFETY: the callback has the signature the API expects, and `context` stays valid
         // until `Drop`, which disables the tap before freeing it.
         let port = unsafe {
