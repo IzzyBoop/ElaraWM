@@ -44,6 +44,7 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/elara-layout/src/animation/` | `src/animation/` | verbatim |
 | `crates/elara-layout/src/layout/` | `src/layout/` | verbatim, tests included |
 | `crates/elara-layout/src/layout/workspace.rs` | `src/layout/workspace.rs` | modified: `configure_new_window()` removed |
+| `crates/elara-layout/src/layout/mod.rs` | `src/layout/mod.rs` | modified: `interactive_moved_window_location()` added |
 | `crates/elara-layout/src/rubber_band.rs` | `src/rubber_band.rs` | verbatim |
 | `crates/elara-layout/src/input/swipe_tracker.rs` | `src/input/swipe_tracker.rs` | verbatim |
 | `crates/elara-layout/src/utils/id.rs` | `src/utils/id.rs` | verbatim |

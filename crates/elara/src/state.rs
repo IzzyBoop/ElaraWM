@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
 use elara_layout::layout::{ActivateWindow, AddWindowTarget, Layout, LayoutElement as _};
-use elara_layout::utils::get_monotonic_time;
 use elara_layout::utils::transaction::Transaction;
+use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
     DisplayId, DisplayInfo, Event, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
@@ -17,6 +17,7 @@ use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::utils::{Point, Rectangle, Size, Transform};
 
+use crate::pointer::PointerGrab;
 use crate::window::Window;
 
 /// How many times one pass may go back and forth with the windows before giving up.
@@ -81,6 +82,11 @@ pub struct State<B: WindowBackend> {
     animate: bool,
     /// The two-finger gesture in progress, if any.
     gesture: Option<Gesture>,
+    /// The window being moved or resized with the mouse, if any.
+    pub(crate) pointer_grab: Option<PointerGrab>,
+    /// The window whose edges are being dragged, and which edges. Kept until the window has
+    /// been given its last size, which is after the drag ends.
+    pub(crate) resizing: Option<(WindowId, ResizeEdge)>,
     /// Windows in the order they last had focus, most recent last.
     pub(crate) focus_history: Vec<WindowId>,
     /// Set by the `quit` action.
@@ -113,6 +119,8 @@ impl<B: WindowBackend> State<B> {
             system_focus: None,
             animate: false,
             gesture: None,
+            pointer_grab: None,
+            resizing: None,
             focus_history: Vec::new(),
             quit_requested: false,
             is_at_startup: true,
@@ -681,7 +689,8 @@ impl<B: WindowBackend> State<B> {
                 // placed properly on the next round.
                 let resizing = size_of(target.frame) != size_of(window.frame());
                 let request = if resizing {
-                    fitted(target.frame, target.usable)
+                    let anchored = self.anchored_for_resize(window, target.frame);
+                    fitted(anchored, target.usable)
                 } else {
                     target.frame
                 };
@@ -732,6 +741,15 @@ impl<B: WindowBackend> State<B> {
             );
         }
 
+        // A drag that ended above has now had its last size carried out.
+        if self.pointer_grab.is_none() {
+            if let Some((id, _)) = self.resizing.take() {
+                if let Some(window) = self.windows.get(&id) {
+                    window.finish_interactive_resize();
+                }
+            }
+        }
+
         self.sync_focus();
 
         if let Some(focused) = self.layout.focus().map(|window| window.window_id()) {
@@ -740,6 +758,32 @@ impl<B: WindowBackend> State<B> {
                 self.focus_history.push(focused);
             }
         }
+    }
+
+    /// Returns `frame` moved so that a floating window whose left or top edge is being
+    /// dragged keeps its opposite edge where it is.
+    ///
+    /// niri's layout learns a window's new size first and moves the window afterwards, by
+    /// however much the size changed. On Wayland both land in the same frame. Here they would
+    /// be two steps the user can see: the window grows to the right, then jumps left. Asking
+    /// for the size and the position it implies together avoids that. If the window takes a
+    /// different size than asked, the layout's own correction follows on the next round.
+    fn anchored_for_resize(&self, window: &Window, frame: Rect) -> Rect {
+        let Some((id, edges)) = self.resizing else {
+            return frame;
+        };
+        if id != window.window_id() || !window.is_floating() {
+            return frame;
+        }
+        let current = window.frame();
+        let mut frame = frame;
+        if edges.contains(ResizeEdge::LEFT) {
+            frame.x += current.w - frame.w;
+        }
+        if edges.contains(ResizeEdge::TOP) {
+            frame.y += current.h - frame.h;
+        }
+        frame
     }
 
     /// Feeds finger movement to niri's gestures: sideways drags the strip of columns, up and
@@ -856,6 +900,25 @@ impl<B: WindowBackend> State<B> {
                     targets.push(Target {
                         id: window.window_id(),
                         frame,
+                        usable: display.info.visible_frame,
+                    });
+                }
+            }
+
+            // A window being dragged with the mouse belongs to no workspace until it is
+            // dropped. niri draws it under the pointer; here the real window goes there.
+            if let Some((window, output, loc)) = self.layout.interactive_moved_window_location() {
+                if output == mon.output() {
+                    let size = window.target_size();
+                    placed.push(window.window_id());
+                    targets.push(Target {
+                        id: window.window_id(),
+                        frame: Rect::new(
+                            origin.x + loc.x.round(),
+                            origin.y + loc.y.round(),
+                            f64::from(size.w),
+                            f64::from(size.h),
+                        ),
                         usable: display.info.visible_frame,
                     });
                 }

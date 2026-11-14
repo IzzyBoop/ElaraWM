@@ -1,5 +1,5 @@
-//! Seeing and intercepting key presses and scrolling system-wide, through a CoreGraphics event
-//! tap.
+//! Seeing and intercepting key presses, scrolling and mouse buttons system-wide, through a
+//! CoreGraphics event tap.
 
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -13,7 +13,10 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::MainThreadMarker;
 
-use crate::{InputEvent, KeyEvent, KeyModifiers, ScrollEvent, ScrollPhase};
+use crate::{
+    InputEvent, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, Point,
+    ScrollEvent, ScrollPhase,
+};
 
 /// The event types the system sends to a tap it has switched off, either because the callback
 /// took too long or because the user is typing into a secure field.
@@ -182,6 +185,31 @@ unsafe extern "C-unwind" fn tap_callback(
                 modifiers,
             })
         }
+        CGEventType::LeftMouseDown
+        | CGEventType::LeftMouseUp
+        | CGEventType::LeftMouseDragged
+        | CGEventType::RightMouseDown
+        | CGEventType::RightMouseUp
+        | CGEventType::RightMouseDragged => {
+            let kind = match event_type {
+                CGEventType::LeftMouseDown => MouseEventKind::Pressed(MouseButton::Left),
+                CGEventType::LeftMouseUp => MouseEventKind::Released(MouseButton::Left),
+                CGEventType::RightMouseDown => MouseEventKind::Pressed(MouseButton::Right),
+                CGEventType::RightMouseUp => MouseEventKind::Released(MouseButton::Right),
+                _ => MouseEventKind::Dragged,
+            };
+            // Global display coordinates with the origin at the top left of the primary
+            // display: the same space the Accessibility API reports window frames in.
+            let location = CGEvent::location(Some(event_ref));
+            InputEvent::Mouse(MouseEvent {
+                kind,
+                position: Point {
+                    x: location.x,
+                    y: location.y,
+                },
+                modifiers,
+            })
+        }
         _ => return event.as_ptr(),
     };
 
@@ -193,7 +221,8 @@ unsafe extern "C-unwind" fn tap_callback(
     }
 }
 
-/// A system-wide tap on key presses, key releases and scrolling.
+/// A system-wide tap on key presses, key releases, scrolling, and the left and right mouse
+/// buttons.
 ///
 /// While it exists, every such event is shown to the handler before any application gets it.
 /// The handler returns `true` to swallow the event. It runs on the main thread from the main
@@ -221,7 +250,13 @@ impl KeyTap {
 
         let mask: CGEventMask = (1 << CGEventType::KeyDown.0)
             | (1 << CGEventType::KeyUp.0)
-            | (1 << CGEventType::ScrollWheel.0);
+            | (1 << CGEventType::ScrollWheel.0)
+            | (1 << CGEventType::LeftMouseDown.0)
+            | (1 << CGEventType::LeftMouseUp.0)
+            | (1 << CGEventType::LeftMouseDragged.0)
+            | (1 << CGEventType::RightMouseDown.0)
+            | (1 << CGEventType::RightMouseUp.0)
+            | (1 << CGEventType::RightMouseDragged.0);
         // SAFETY: the callback has the signature the API expects, and `context` stays valid
         // until `Drop`, which disables the tap before freeing it.
         let port = unsafe {

@@ -84,11 +84,39 @@ pub struct ScrollEvent {
     pub modifiers: KeyModifiers,
 }
 
-/// A key or scroll event from the input tap.
+/// A mouse button the input tap reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Right,
+}
+
+/// What happened to the mouse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseEventKind {
+    /// The button went down.
+    Pressed(MouseButton),
+    /// The button came up.
+    Released(MouseButton),
+    /// The pointer moved with a button held.
+    Dragged,
+}
+
+/// A mouse button press, release or drag, as seen before any application gets it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MouseEvent {
+    pub kind: MouseEventKind,
+    /// Where the pointer is, in the global coordinates window frames use.
+    pub position: Point,
+    pub modifiers: KeyModifiers,
+}
+
+/// A key, scroll or mouse event from the input tap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputEvent {
     Key(KeyEvent),
     Scroll(ScrollEvent),
+    Mouse(MouseEvent),
 }
 
 /// Identifies a window for as long as it exists. Never reused within one backend.
