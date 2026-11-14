@@ -179,9 +179,13 @@ impl Surface {
         // Among ordinary windows, and brought to the front whenever what it shows changes.
         // Above them all the time, it would also cover windows that are not managed.
         window.setLevel(NSNormalWindowLevel);
-        // Not a window to switch to, and not one for Mission Control to show as a tile.
+        // Not a window to switch to. And transient, which is what panels are: Mission Control
+        // hides such windows while it is open. The outlines belong to windows at their full
+        // size, and Mission Control shrinks those and moves them about. A stationary window
+        // would stay behind, showing rings around windows that are no longer there; an
+        // ordinary one would be shown as a tile of its own.
         window.setCollectionBehavior(
-            NSWindowCollectionBehavior::Stationary | NSWindowCollectionBehavior::IgnoresCycle,
+            NSWindowCollectionBehavior::Transient | NSWindowCollectionBehavior::IgnoresCycle,
         );
 
         let bounds = CGRect::new(CGPoint::new(0., 0.), rect.size);
