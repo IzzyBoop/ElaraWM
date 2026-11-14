@@ -27,6 +27,15 @@ fn main() {
         if trusted { "granted" } else { "not granted" }
     );
 
+    println!(
+        "Displays have separate Spaces: {}",
+        match elara_macos::displays_have_separate_spaces() {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        }
+    );
+
     println!();
     println!("Displays:");
     for d in elara_macos::displays() {

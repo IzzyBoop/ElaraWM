@@ -9,13 +9,30 @@ mod run_loop;
 use objc2_application_services::{
     kAXTrustedCheckOptionPrompt, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,
 };
-use objc2_core_foundation::{CFBoolean, CFDictionary, CFString, CFType};
+use objc2_core_foundation::{CFBoolean, CFDictionary, CFPreferencesCopyAppValue, CFString, CFType};
 use objc2_foundation::MainThreadMarker;
 
 pub use self::backend::MacBackend;
 pub use self::keys::KeyTap;
 pub use self::run_loop::run;
 use crate::DisplayInfo;
+
+/// Returns whether "Displays have separate Spaces" is switched on in System Settings, under
+/// Desktop & Dock. `None` if the setting could not be read.
+///
+/// With it on, which is the default, each display has its own menu bar and a window is drawn
+/// only on the display that holds most of it. With it off, the displays form one large desktop
+/// and a window can straddle them.
+pub fn displays_have_separate_spaces() -> Option<bool> {
+    let key = CFString::from_static_str("spans-displays");
+    let domain = CFString::from_static_str("com.apple.spaces");
+    // The key is absent until the setting has been changed once, which means the default.
+    let Some(value) = CFPreferencesCopyAppValue(&key, &domain) else {
+        return Some(true);
+    };
+    let spans = value.downcast_ref::<CFBoolean>()?.as_bool();
+    Some(!spans)
+}
 
 /// Lists the connected displays, primary first. This needs no permission.
 ///

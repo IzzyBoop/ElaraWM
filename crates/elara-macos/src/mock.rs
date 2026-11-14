@@ -69,6 +69,14 @@ impl MockBackend {
         self.events.push(Event::DisplaysChanged);
     }
 
+    /// Changes the part of a display that the menu bar and the Dock leave free, as happens
+    /// when the Dock is shown or hidden. Like macOS, this reports no event.
+    pub fn set_visible_frame(&mut self, id: DisplayId, visible_frame: Rect) {
+        if let Some(display) = self.displays.iter_mut().find(|d| d.id == id) {
+            display.visible_frame = visible_frame;
+        }
+    }
+
     fn sort_displays(&mut self) {
         self.displays.sort_by_key(|d| (!d.is_primary, d.id));
     }
