@@ -99,33 +99,103 @@ fn a_released_gesture_glides_to_rest() {
     let _ = a;
 }
 
+/// Ticks once per frame until nothing is moving, recording where each window was after every
+/// frame.
+fn record(state: &mut State<MockBackend>, ids: &[WindowId]) -> Vec<Vec<Rect>> {
+    let started = Instant::now();
+    let mut frames = vec![ids.iter().map(|id| frame(state, *id)).collect()];
+    while state.is_animating() {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "animation did not finish"
+        );
+        sleep(Duration::from_millis(8));
+        state.tick();
+        frames.push(ids.iter().map(|id| frame(state, *id)).collect());
+    }
+    frames
+}
+
+fn is_parked(frame: Rect) -> bool {
+    frame.x == SCREEN.max_x() - 1.
+}
+
 #[test]
-fn switching_workspaces_slides_them() {
+fn switching_to_the_workspace_below_slides_it_in_from_the_bottom() {
     let (mut state, [_a, _b, c]) = animated(default_config());
-    let start = frame(&state, c).y;
+    state.do_action(Action::FocusWorkspaceDown);
+    settle(&mut state, c);
+    let d = open(&mut state, "d");
+    state.do_action(Action::FocusWorkspaceUp);
+    settle(&mut state, c);
 
     state.do_action(Action::FocusWorkspaceDown);
-    let path: Vec<f64> = {
-        let started = Instant::now();
-        let mut seen = vec![frame(&state, c).y];
-        while state.is_animating() {
-            assert!(started.elapsed() < Duration::from_secs(5));
-            sleep(Duration::from_millis(8));
-            state.tick();
-            // Only while it is still on screen; after that it is parked.
-            let f = frame(&state, c);
-            if f.x < SCREEN.max_x() - 1. && seen.last() != Some(&f.y) {
-                seen.push(f.y);
-            }
-        }
-        seen
-    };
+    let frames = record(&mut state, &[c, d]);
 
-    // The old workspace moved up and off before its windows were parked.
-    assert_eq!(path.first(), Some(&start));
-    assert!(path.len() > 3, "expected a slide, got {path:?}");
-    assert!(path.windows(2).all(|pair| pair[0] > pair[1]), "{path:?}");
-    assert_eq!(frame(&state, c).x, SCREEN.max_x() - 1.);
+    // The arriving window comes up from the bottom of the screen to its place.
+    let mut arriving: Vec<f64> = frames
+        .iter()
+        .map(|f| f[1])
+        .filter(|f| !is_parked(*f))
+        .map(|f| f.y)
+        .collect();
+    arriving.dedup();
+    assert!(arriving.len() > 4, "expected a slide, got {arriving:?}");
+    assert!(
+        arriving.windows(2).all(|pair| pair[0] > pair[1]),
+        "{arriving:?}"
+    );
+    assert_eq!(arriving.last(), Some(&55.));
+
+    // The leaving window would have to go up past the menu bar, which macOS does not allow.
+    // It must not be left stuck under the menu bar while the other one slides in: once its
+    // place is above the top, it is hidden.
+    let leaving: Vec<Rect> = frames.iter().map(|f| f[0]).collect();
+    let stuck = leaving
+        .iter()
+        .filter(|f| !is_parked(**f) && f.y == 39.)
+        .count();
+    assert!(
+        stuck <= 1,
+        "the leaving window sat under the menu bar for {stuck} frames"
+    );
+    assert!(is_parked(*leaving.last().unwrap()));
+}
+
+#[test]
+fn switching_to_the_workspace_above_slides_the_old_one_out_at_the_bottom() {
+    let (mut state, [_a, _b, c]) = animated(default_config());
+    state.do_action(Action::FocusWorkspaceDown);
+    settle(&mut state, c);
+    let d = open(&mut state, "d");
+
+    state.do_action(Action::FocusWorkspaceUp);
+    let frames = record(&mut state, &[c, d]);
+
+    // The leaving window goes down and off the bottom.
+    let mut leaving: Vec<f64> = frames
+        .iter()
+        .map(|f| f[1])
+        .filter(|f| !is_parked(*f))
+        .map(|f| f.y)
+        .collect();
+    leaving.dedup();
+    assert!(leaving.len() > 4, "expected a slide, got {leaving:?}");
+    assert!(
+        leaving.windows(2).all(|pair| pair[0] < pair[1]),
+        "{leaving:?}"
+    );
+
+    // The arriving one comes from above the top, where it cannot be shown. It appears once
+    // its place is below the menu bar, which is the last few points of its way down, and is
+    // never shown stuck anywhere else.
+    for f in frames.iter().map(|f| f[0]).filter(|f| !is_parked(*f)) {
+        assert!(
+            (39. ..=55.).contains(&f.y),
+            "the arriving window was shown out of place at {f:?}"
+        );
+    }
+    assert_eq!(frame(&state, c).y, 55.);
 }
 
 #[test]

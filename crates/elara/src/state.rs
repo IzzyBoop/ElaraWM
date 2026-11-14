@@ -835,7 +835,19 @@ impl<B: WindowBackend> State<B> {
                         && self
                             .other_displays(display)
                             .any(|other| frame.intersects(&other.frame));
-                    let frame = if visible && frame.intersects(&display.info.frame) && !spills {
+                    // While workspaces slide, the ones moving up, and the ones arriving from
+                    // above, have windows whose place is above the top of the display. macOS
+                    // does not let a window go above the menu bar: asked to, it stops just
+                    // under it and stays there, on top of the workspace sliding in. Such a
+                    // window is hidden for as long as it would have to be up there. This only
+                    // concerns a workspace that is on the move; a fullscreen window at rest
+                    // also asks for the top of the display, and gets the nearest thing.
+                    let above_top = ws_geo.loc.y != 0. && frame.y < display.info.visible_frame.y;
+                    let frame = if visible
+                        && frame.intersects(&display.info.frame)
+                        && !spills
+                        && !above_top
+                    {
                         frame
                     } else {
                         self.parked(frame, display)
