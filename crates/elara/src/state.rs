@@ -163,6 +163,10 @@ impl<B: WindowBackend> State<B> {
     /// Handles everything the system reported since the last call, then puts every window
     /// where the layout says it belongs.
     pub fn tick(&mut self) {
+        // The usable part of a display changes without any display event when the Dock or
+        // the menu bar is shown or hidden, so the displays are compared on every pass.
+        self.sync_displays();
+
         for event in self.backend.drain_events() {
             self.handle_event(event);
         }
@@ -509,6 +513,9 @@ impl<B: WindowBackend> State<B> {
 
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
+        if size_changed && is_floating {
+            window.accept_current_size();
+        }
         if size_changed {
             self.layout.update_window(&id, None);
         }
@@ -637,11 +644,18 @@ impl<B: WindowBackend> State<B> {
 
                     // Columns scrolled out of view lie beyond the edge of the output. On
                     // Wayland they are simply not drawn. Here they would show up on the
-                    // neighboring display, so they are parked instead.
-                    let frame = if visible && frame.intersects(&display.info.frame) {
+                    // neighboring display, so they are parked instead. The same goes for a
+                    // column that is partly in view at an edge shared with another display:
+                    // the part past the edge would be drawn over there. A floating window is
+                    // the user's to place, across displays if they like.
+                    let spills = !window.is_floating()
+                        && self
+                            .other_displays(display)
+                            .any(|other| frame.intersects(&other.frame));
+                    let frame = if visible && frame.intersects(&display.info.frame) && !spills {
                         frame
                     } else {
-                        parked(frame, &display.info)
+                        self.parked(frame, display)
                     };
                     placed.push(window.window_id());
                     targets.push(Target {
@@ -662,12 +676,55 @@ impl<B: WindowBackend> State<B> {
                 placed.push(id);
                 targets.push(Target {
                     id,
-                    frame: parked(frame, &display.info),
+                    frame: self.parked(frame, display),
                 });
             }
         }
 
         targets
+    }
+
+    fn other_displays<'a>(
+        &'a self,
+        display: &'a Display,
+    ) -> impl Iterator<Item = &'a DisplayInfo> + 'a {
+        self.displays
+            .iter()
+            .map(|other| &other.info)
+            .filter(move |other| other.id != display.info.id)
+    }
+
+    /// Returns where to keep a window of `display` that should not be visible.
+    ///
+    /// macOS has no way to hide another application's window short of minimizing it or hiding
+    /// the whole application, both of which the user would see. Instead the window is moved so
+    /// that only one corner pixel of it remains on its display. Which corner depends on the
+    /// arrangement: the rest of the window must hang into empty space, not onto another
+    /// display.
+    fn parked(&self, frame: Rect, display: &Display) -> Rect {
+        let area = display.info.frame;
+        let candidates = [
+            // Hanging off the bottom-right corner, then bottom-left, top-right, top-left.
+            Rect::new(area.max_x() - 1., area.max_y() - 1., frame.w, frame.h),
+            Rect::new(area.x - frame.w + 1., area.max_y() - 1., frame.w, frame.h),
+            Rect::new(area.max_x() - 1., area.y - frame.h + 1., frame.w, frame.h),
+            Rect::new(
+                area.x - frame.w + 1.,
+                area.y - frame.h + 1.,
+                frame.w,
+                frame.h,
+            ),
+        ];
+
+        candidates
+            .into_iter()
+            .find(|candidate| {
+                !self
+                    .other_displays(display)
+                    .any(|other| candidate.intersects(&other.frame))
+            })
+            // Surrounded on every corner: nothing better to do than the default.
+            .unwrap_or(candidates[0])
     }
 
     /// Gives the system's keyboard focus to the window the layout has focused.
@@ -751,20 +808,6 @@ impl<B: WindowBackend> State<B> {
             }
         }
     }
-}
-
-/// Returns where to keep a window that should not be visible.
-///
-/// macOS has no way to hide another application's window without minimizing it or hiding the
-/// whole application, both of which the user would see. Instead the window is moved so that only
-/// its top-left corner pixel remains on the display, at the bottom-right corner.
-fn parked(frame: Rect, display: &DisplayInfo) -> Rect {
-    Rect::new(
-        display.frame.max_x() - 1.,
-        display.frame.max_y() - 1.,
-        frame.w,
-        frame.h,
-    )
 }
 
 /// Whether enough of a window is inside `area` for the user to grab it.

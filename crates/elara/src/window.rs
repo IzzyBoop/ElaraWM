@@ -207,6 +207,14 @@ impl Window {
         old != self.size()
     }
 
+    /// Makes the window's current size the requested one.
+    ///
+    /// For a floating window that the user resized: the size is theirs to choose, so the
+    /// earlier request must not be asserted again.
+    pub fn accept_current_size(&self) {
+        self.inner.requested_size.set(Some(self.size()));
+    }
+
     /// The size the layout wants the window to have, with "keep what you have" resolved.
     pub fn target_size(&self) -> Size<i32, Logical> {
         let current = self.size();

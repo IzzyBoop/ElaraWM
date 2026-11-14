@@ -133,6 +133,15 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    match elara_macos::displays_have_separate_spaces() {
+        Some(true) => tracing::debug!("displays have separate Spaces"),
+        Some(false) => tracing::info!(
+            "\"Displays have separate Spaces\" is off: the displays form one desktop, and a \
+             window at the edge of one display can show on the next"
+        ),
+        None => tracing::debug!("could not read the \"Displays have separate Spaces\" setting"),
+    }
+
     let backend = match MacBackend::new() {
         Ok(backend) => backend,
         Err(err) => {
