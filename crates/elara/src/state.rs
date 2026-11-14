@@ -511,6 +511,13 @@ impl<B: WindowBackend> State<B> {
             return;
         }
 
+        debug!(
+            id = id.0,
+            app = window.app_id().unwrap_or("?"),
+            was = ?window.frame(),
+            now = ?frame,
+            "window changed frame on its own"
+        );
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
         if size_changed && is_floating {
@@ -579,6 +586,13 @@ impl<B: WindowBackend> State<B> {
 
                 match self.backend.set_frame(target.id, target.frame) {
                     Ok(actual) => {
+                        debug!(
+                            id = target.id.0,
+                            app = window.app_id().unwrap_or("?"),
+                            asked = ?target.frame,
+                            got = ?actual,
+                            "placed window"
+                        );
                         if window.record_response(target.frame, actual) {
                             self.layout.update_window(&target.id, None);
                             any_response = true;
