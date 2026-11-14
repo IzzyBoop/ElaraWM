@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/icons/elara-white.svg">
+    <img src="resources/icons/elara.svg" alt="ElaraWM" width="220">
+  </picture>
+</p>
+
 # ElaraWM
 
 A scrollable-tiling window manager for macOS 27, ported from
