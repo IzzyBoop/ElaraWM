@@ -479,9 +479,7 @@ impl MacBackend {
             movable: ax::is_settable(&element, ax::POSITION),
             minimized: ax::boolean(&element, ax::MINIMIZED).unwrap_or(false),
             fullscreen: ax::boolean(&element, ax::FULLSCREEN).unwrap_or(false),
-            // A window that appears while the user is on another Space is most likely on
-            // that one. The next check of the managed Space settles it either way.
-            on_other_space: !self.home_active,
+            on_other_space: !self.new_window_is_here(),
         };
         debug!(?id, pid, app_id = ?info.app_id, ?kind, "tracking window");
 
@@ -502,6 +500,24 @@ impl MacBackend {
     /// to be on the managed Space.
     pub fn can_tell_spaces(&self) -> bool {
         self.home_seen
+    }
+
+    /// Whether a window that has just come to light is on the managed Space.
+    ///
+    /// A window appears where the user is, so this comes down to whether they are looking
+    /// at the managed Space at this moment. That is asked of the window server here and
+    /// now: applications report the windows they have on a Space only once it is shown, so
+    /// such windows turn up during the very switch away, before anything else has noticed
+    /// it. Checking the windows on screen settles the matter either way afterwards.
+    fn new_window_is_here(&self) -> bool {
+        if !self.home_seen {
+            return true;
+        }
+        if !self.home_active {
+            return false;
+        }
+        spaces::OnScreen::read()
+            .is_none_or(|on_screen| on_screen.has_window_of(std::process::id() as i32))
     }
 
     /// Re-reads whether the user is looking at the managed Space.
@@ -798,6 +814,9 @@ impl WindowBackend for MacBackend {
     }
 
     fn drain_events(&mut self) -> Vec<Event> {
+        // First of all: what follows depends on which Space is showing.
+        self.refresh_home();
+
         let raw = RAW.with(|queue| std::mem::take(&mut *queue.borrow_mut()));
         for raw in raw {
             match raw {
@@ -823,7 +842,6 @@ impl WindowBackend for MacBackend {
 
         self.retry_pending_apps();
 
-        self.refresh_home();
         if self.space_checked.elapsed() >= SPACE_CHECK_INTERVAL {
             self.check_spaces(false);
         }
