@@ -19,8 +19,10 @@ struct MockWindow {
 ///
 /// It behaves like well-mannered macOS applications do: a window takes the frame it is asked to
 /// take, except that it keeps its size within its limits, ignores moves or resizes it does not
-/// allow, and reports every change back as an event. Tests drive the "user" and "application"
-/// side through the methods on this type and the window manager side through [`WindowBackend`].
+/// allow, will not be resized to reach past the right or bottom edge of the display it is on
+/// or be placed under the menu bar, and reports every change back as an event. Tests drive the
+/// "user" and "application" side through the methods on this type and the window manager side
+/// through [`WindowBackend`].
 #[derive(Debug, Default)]
 pub struct MockBackend {
     displays: Vec<DisplayInfo>,
@@ -215,6 +217,30 @@ impl MockBackend {
                 w = w.min(max.w);
                 h = h.min(max.h);
             }
+
+            // macOS cuts a resize short at the edges of the display the window is on. A window
+            // may hang off a display, having been moved there, but it cannot be grown past the
+            // edge.
+            let resized = w != window.info.frame.w || h != window.info.frame.h;
+            let origin = crate::Point {
+                x: frame.x,
+                y: frame.y,
+            };
+            if let Some(display) = self.displays.iter().find(|d| d.frame.contains(origin)) {
+                // Nor can a window be put under the menu bar.
+                if !by_user && frame.y < display.visible_frame.y {
+                    frame.y = display.visible_frame.y;
+                }
+                if resized && !by_user {
+                    w = w
+                        .min(display.frame.max_x() - frame.x)
+                        .max(window.min_size.w);
+                    h = h
+                        .min(display.frame.max_y() - frame.y)
+                        .max(window.min_size.h);
+                }
+            }
+
             frame.w = w;
             frame.h = h;
         }
@@ -234,6 +260,10 @@ impl WindowBackend for MockBackend {
 
     fn windows(&self) -> Vec<WindowInfo> {
         self.windows.values().map(|w| w.info.clone()).collect()
+    }
+
+    fn window_frame(&self, window: WindowId) -> Option<Rect> {
+        self.windows.get(&window).map(|w| w.info.frame)
     }
 
     fn focused_window(&self) -> Option<WindowId> {

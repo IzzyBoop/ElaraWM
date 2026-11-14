@@ -144,12 +144,14 @@ impl Window {
 
     /// Records that the window was asked to take `request` and ended up with `actual`.
     ///
-    /// Where the window refused the requested size, the refusal is remembered as a size limit so
-    /// the layout stops asking for sizes the window will not take. The pending sizing mode
+    /// Where the window refused the requested size and `learn_limits` is set, the refusal is
+    /// remembered as a size limit so the layout stops asking for sizes the window will not
+    /// take. The caller clears `learn_limits` when something other than the window may have
+    /// cut the size short. The pending sizing mode
     /// becomes current, as it does when a Wayland client acknowledges a configure.
     ///
     /// Returns whether anything the layout cares about changed.
-    pub fn record_response(&self, request: Rect, actual: Rect) -> bool {
+    pub fn record_response(&self, request: Rect, actual: Rect, learn_limits: bool) -> bool {
         let inner = &self.inner;
         let before = (
             self.size(),
@@ -161,7 +163,7 @@ impl Window {
         inner.last_request.set(Some(request));
         inner.frame.set(actual);
 
-        if inner.resizable {
+        if inner.resizable && learn_limits {
             let asked = size_of(request);
             let got = size_of(actual);
             let mut min = inner.min_size.get();

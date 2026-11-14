@@ -39,6 +39,8 @@ pub(crate) struct Display {
 struct Target {
     id: WindowId,
     frame: Rect,
+    /// The part of the window's display that the menu bar and the Dock leave free.
+    usable: Rect,
 }
 
 /// niri's layout, driving macOS windows through a [`WindowBackend`].
@@ -364,7 +366,7 @@ impl<B: WindowBackend> State<B> {
             if request != info.frame {
                 match self.backend.set_frame(id, request) {
                     Ok(actual) => {
-                        window.record_response(request, actual);
+                        window.record_response(request, actual, false);
                     }
                     Err(err) => debug!(?id, %err, "could not give new window its initial size"),
                 }
@@ -506,7 +508,11 @@ impl<B: WindowBackend> State<B> {
         let Some(window) = self.windows.get(&id) else {
             return;
         };
-        // The system reports every change, including the ones ElaraWM asked for.
+        // An event says that the frame changed at some point, and events are handled later
+        // than they happen: by now the window may have been placed again. So the frame in the
+        // event is only a hint, and the one the window has now is what counts. Most events
+        // are the system reporting changes that ElaraWM asked for, and end here.
+        let frame = self.backend.window_frame(id).unwrap_or(frame);
         if window.frame() == frame {
             return;
         }
@@ -578,23 +584,46 @@ impl<B: WindowBackend> State<B> {
                 let Some(window) = self.windows.get(&target.id) else {
                     continue;
                 };
+                // macOS cuts a resize short at the edges of the display, so a window can only
+                // be given a size from a position where that size fits. niri's layout asks for
+                // the size first and moves the window once it has it: a column in the right
+                // half of the screen that is told to fill the screen stays where it is until
+                // it has grown. Asked for like that, it would be cut off at the right edge and
+                // never get there. So when the new size does not fit at the target position,
+                // the window is first resized at the nearest position where it does, and
+                // placed properly on the next round.
+                let resizing = size_of(target.frame) != size_of(window.frame());
+                let request = if resizing {
+                    fitted(target.frame, target.usable)
+                } else {
+                    target.frame
+                };
+
                 // Nothing to do if the window is there already, or was asked for exactly this
                 // and answered with something else that it has kept since.
-                if window.frame() == target.frame || window.last_request() == Some(target.frame) {
+                if window.frame() == target.frame || window.last_request() == Some(request) {
                     continue;
                 }
 
-                match self.backend.set_frame(target.id, target.frame) {
+                // A size larger than the usable area gets cut short whatever the position.
+                // niri's fullscreen, the whole display including where the menu bar is, is
+                // such a size. That says nothing about the window's own limits.
+                let learn_limits = request.w <= target.usable.w && request.h <= target.usable.h;
+
+                match self.backend.set_frame(target.id, request) {
                     Ok(actual) => {
                         debug!(
                             id = target.id.0,
                             app = window.app_id().unwrap_or("?"),
-                            asked = ?target.frame,
+                            asked = ?request,
                             got = ?actual,
                             "placed window"
                         );
-                        if window.record_response(target.frame, actual) {
+                        if window.record_response(request, actual, learn_limits) {
                             self.layout.update_window(&target.id, None);
+                            any_response = true;
+                        }
+                        if request != target.frame {
                             any_response = true;
                         }
                     }
@@ -602,7 +631,7 @@ impl<B: WindowBackend> State<B> {
                         // The window may be closing or its application hung. Its events will
                         // say which; until then, do not hammer it.
                         debug!(id = ?target.id, %err, "could not place window");
-                        window.record_response(target.frame, window.frame());
+                        window.record_response(target.frame, window.frame(), false);
                     }
                 }
             }
@@ -675,6 +704,7 @@ impl<B: WindowBackend> State<B> {
                     targets.push(Target {
                         id: window.window_id(),
                         frame,
+                        usable: display.info.visible_frame,
                     });
                 }
             }
@@ -691,6 +721,7 @@ impl<B: WindowBackend> State<B> {
                 targets.push(Target {
                     id,
                     frame: self.parked(frame, display),
+                    usable: display.info.visible_frame,
                 });
             }
         }
@@ -822,6 +853,18 @@ impl<B: WindowBackend> State<B> {
             }
         }
     }
+}
+
+fn size_of(frame: Rect) -> (i32, i32) {
+    (frame.w.round() as i32, frame.h.round() as i32)
+}
+
+/// Returns `frame` moved the least distance that makes it lie inside `area`. Where it is larger
+/// than `area`, it is aligned to the left or top edge.
+fn fitted(frame: Rect, area: Rect) -> Rect {
+    let x = frame.x.min(area.max_x() - frame.w).max(area.x);
+    let y = frame.y.min(area.max_y() - frame.h).max(area.y);
+    Rect::new(x, y, frame.w, frame.h)
 }
 
 /// Whether enough of a window is inside `area` for the user to grab it.
