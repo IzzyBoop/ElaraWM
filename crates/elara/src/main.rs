@@ -183,6 +183,9 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                 return false;
             };
             let response = key_handler.handle(state.config(), event);
+            if response.action.is_some() {
+                tracing::debug!(repeat = event.is_repeat, "bound key pressed");
+            }
             if let Some(action) = response.action {
                 actions.borrow_mut().push_back(action);
             }
