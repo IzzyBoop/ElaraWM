@@ -53,6 +53,44 @@ pub struct KeyEvent {
     pub is_repeat: bool,
 }
 
+/// Where a scroll is in the sequence of events that one gesture produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollPhase {
+    /// The device does not report gestures. A mouse wheel never does.
+    None,
+    /// Fingers touched down and started moving.
+    Began,
+    /// Fingers are moving.
+    Changed,
+    /// Fingers lifted, or the gesture was cancelled.
+    Ended,
+}
+
+/// A scroll from a trackpad or a mouse wheel, as seen before any application gets it.
+///
+/// Positive `delta_x` moves content to the right and positive `delta_y` moves it down, which
+/// already takes the user's "natural scrolling" setting into account.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollEvent {
+    pub delta_x: f64,
+    pub delta_y: f64,
+    /// `true` for a trackpad or other device that scrolls by points, in which case the deltas
+    /// are in points. `false` for a wheel that scrolls in steps, in which case they are in
+    /// steps.
+    pub continuous: bool,
+    pub phase: ScrollPhase,
+    /// Whether this is the system letting the content coast after the fingers lifted.
+    pub momentum: bool,
+    pub modifiers: KeyModifiers,
+}
+
+/// A key or scroll event from the input tap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InputEvent {
+    Key(KeyEvent),
+    Scroll(ScrollEvent),
+}
+
 /// Identifies a window for as long as it exists. Never reused within one backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(pub u64);

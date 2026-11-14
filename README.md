@@ -45,6 +45,10 @@ changes. If an edit has an error, the error is printed and the previous config s
 
 - `Mod` in binds is the Option key. Set `mod-key` in the `input` section to change it. Command
   is `Super`, Option is `Alt`.
+- Holding `Mod` and scrolling with two fingers on the trackpad drags the strip of columns
+  sideways, or the workspaces up and down, like niri's three-finger swipe. The mouse wheel
+  triggers the `WheelScroll…` binds; by default `Mod`+wheel switches workspaces and
+  `Mod+Shift`+wheel moves between columns.
 - Window rules match `app-id` against the application's bundle identifier, such as
   `com.apple.Terminal`.
 - Output names are display names, such as `"Built-in Retina Display"`.

@@ -114,11 +114,12 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use elara::keys::KeyHandler;
+    use elara::scroll::{ScrollHandler, ScrollInput};
     use elara::State;
-    use elara_macos::{request_accessibility, run_main_loop, KeyTap, MacBackend};
+    use elara_macos::{request_accessibility, run_main_loop, InputEvent, KeyTap, MacBackend};
 
     // Shows the system dialog pointing at the right settings pane if the permission is missing.
     if !request_accessibility() {
@@ -168,40 +169,54 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
         state.borrow().layout().windows().count()
     );
 
-    // Key presses arrive through the tap, between passes of the loop below. The tap only
-    // decides whether a press is a bind; the action waits here until the loop runs it.
-    let actions = Rc::new(RefCell::new(VecDeque::new()));
+    // Keys and scrolling arrive through the tap, between passes of the loop below. The tap
+    // only decides whether an event is for ElaraWM; what it asks for waits here until the loop
+    // carries it out. Finger movement is queued like everything else, so that however many
+    // scroll events arrive while windows are being moved, they are moved once.
+    let inputs = Rc::new(RefCell::new(VecDeque::new()));
     let mut key_handler = KeyHandler::new();
+    let mut scroll_handler = ScrollHandler::new();
     let tap = KeyTap::new({
         let state = Rc::clone(&state);
-        let actions = Rc::clone(&actions);
+        let inputs = Rc::clone(&inputs);
         move |event| {
             // The state is only ever borrowed elsewhere while the loop below runs a pass,
-            // and the tap does not fire during one. If that ever changes, let the key through
-            // rather than panic inside a system callback.
+            // and the tap does not fire during one. If that ever changes, let the event
+            // through rather than panic inside a system callback.
             let Ok(state) = state.try_borrow() else {
                 return false;
             };
-            let response = key_handler.handle(state.config(), event);
-            if response.action.is_some() {
-                tracing::debug!(repeat = event.is_repeat, "bound key pressed");
-            } else if event.pressed && event.modifiers != Default::default() {
-                // Only the key code and modifiers, never what is being typed.
-                tracing::trace!(
-                    keycode = event.keycode,
-                    modifiers = ?event.modifiers,
-                    has_character = event.character.is_some(),
-                    "key with modifiers is not bound"
-                );
+            match event {
+                InputEvent::Key(event) => {
+                    let response = key_handler.handle(state.config(), event);
+                    if let Some(action) = response.action {
+                        tracing::debug!(repeat = event.is_repeat, "bound key pressed");
+                        inputs.borrow_mut().push_back(ScrollInput::Action(action));
+                    } else if event.pressed && event.modifiers != Default::default() {
+                        // Only the key code and modifiers, never what is being typed.
+                        tracing::trace!(
+                            keycode = event.keycode,
+                            modifiers = ?event.modifiers,
+                            has_character = event.character.is_some(),
+                            "key with modifiers is not bound"
+                        );
+                    }
+                    response.swallow
+                }
+                InputEvent::Scroll(event) => {
+                    let response = scroll_handler.handle(state.config(), event, Instant::now());
+                    if let Some(input) = response.input {
+                        inputs.borrow_mut().push_back(input);
+                    }
+                    response.swallow
+                }
             }
-            if let Some(action) = response.action {
-                actions.borrow_mut().push_back(action);
-            }
-            response.swallow
         }
     });
     if tap.is_none() {
-        tracing::warn!("could not install the key event tap; key bindings will not work");
+        tracing::warn!(
+            "could not install the input event tap; key bindings and scrolling will not work"
+        );
     }
 
     let mut crashed = false;
@@ -235,9 +250,17 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                 }
             }
 
-            let queued: Vec<_> = actions.borrow_mut().drain(..).collect();
-            for action in queued {
-                state.do_action(action);
+            let queued: Vec<_> = inputs.borrow_mut().drain(..).collect();
+            for input in queued {
+                match input {
+                    ScrollInput::Action(action) => {
+                        state.do_action(action);
+                    }
+                    ScrollInput::GestureUpdate { delta_x, delta_y } => {
+                        state.gesture_update(delta_x, delta_y);
+                    }
+                    ScrollInput::GestureEnd => state.gesture_end(),
+                }
             }
             state.tick();
         }));

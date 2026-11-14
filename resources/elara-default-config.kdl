@@ -9,6 +9,10 @@
 // - "Mod" is the Option key unless you set `mod-key` in the `input` section. Command is left
 //   to your applications. A bind on Mod+<letter> takes over Option+<letter>, which macOS
 //   otherwise uses to type special characters; remove a bind to get the character back.
+// - Scrolling with two fingers on the trackpad while holding Mod drags the strip of columns
+//   sideways, or the workspaces up and down. This stands in for niri's three-finger swipe,
+//   which macOS keeps for itself. It needs no bind. The mouse wheel uses the
+//   `WheelScroll...` binds below.
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.
