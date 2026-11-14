@@ -21,6 +21,7 @@ use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Optio
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::niri_render_elements;
+use crate::render_helpers::border::Parameters;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::SolidColorRenderElement;
@@ -1641,6 +1642,32 @@ impl<W: LayoutElement> Monitor<W> {
 
         let ws = &self.workspaces[self.active_workspace_idx];
         ws.render_above_top_layer()
+    }
+
+    // ELARA: niri places the insert hint while rendering, in `render_workspaces()` and
+    // `render_insert_hint_between_workspaces()`. ElaraWM draws it itself and asks where.
+    /// Returns the rectangle of the insert hint within the output, and the parameters it is
+    /// drawn with. `None` when there is no hint to draw.
+    pub fn insert_hint_outline(&self) -> Option<(Rectangle<f64, Logical>, &Parameters)> {
+        if self.options.layout.insert_hint.off {
+            return None;
+        }
+        let render_loc = self.insert_hint_render_loc?;
+        let (rect, parameters) = self.insert_hint_element.outline()?;
+
+        let origin = match render_loc.workspace {
+            // Drawn with the workspace it is on.
+            InsertWorkspace::Existing(id) => {
+                let (_, geo) = self
+                    .workspaces_with_render_geo()
+                    .find(|(ws, _)| ws.id() == id)?;
+                geo.loc
+            }
+            // Drawn between workspaces, directly on the output.
+            InsertWorkspace::NewAt(_) => Point::default(),
+        };
+        let loc = origin + render_loc.location + rect.loc;
+        Some((Rectangle::new(loc, rect.size), parameters))
     }
 
     pub fn render_insert_hint_between_workspaces<R: NiriRenderer>(

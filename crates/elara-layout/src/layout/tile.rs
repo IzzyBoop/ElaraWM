@@ -19,7 +19,7 @@ use crate::animation::{Animation, Clock};
 use crate::layout::SizingMode;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::border::BorderRenderElement;
+use crate::render_helpers::border::{BorderRenderElement, Parameters};
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
@@ -1524,6 +1524,30 @@ impl<W: LayoutElement> Tile<W> {
 
     pub fn take_unmap_snapshot(&mut self) -> Option<TileRenderSnapshot> {
         self.unmap_snapshot.take()
+    }
+
+    // ELARA: what `render_inner()` draws around the window. niri decides this while
+    // rendering; ElaraWM draws these itself and asks for them.
+    /// Returns the window's border, and its focus ring if `focus_ring` is set, in that order:
+    /// for each, the rectangle it covers relative to the tile's location, the width of its
+    /// line, and the parameters it is drawn with. `None` for one that is not drawn.
+    #[allow(clippy::type_complexity)]
+    pub fn outlines(
+        &self,
+        focus_ring: bool,
+    ) -> [Option<(Rectangle<f64, Logical>, f64, &Parameters)>; 2] {
+        let border = self.visual_border_width().and_then(|width| {
+            let (rect, parameters) = self.border.outline()?;
+            let loc = rect.loc + Point::from((width, width));
+            Some((Rectangle::new(loc, rect.size), width, parameters))
+        });
+
+        let focus_ring = (focus_ring && self.expanded_progress() < 1.)
+            .then(|| self.focus_ring.outline())
+            .flatten()
+            .map(|(rect, parameters)| (rect, self.focus_ring.width(), parameters));
+
+        [border, focus_ring]
     }
 
     pub fn border(&self) -> &FocusRing {

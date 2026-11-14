@@ -25,7 +25,7 @@ pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
 pub use macos::{
     accessibility_trusted, character_for_keycode, displays, displays_have_separate_spaces,
-    request_accessibility, run as run_main_loop, KeyTap, MacBackend, Wake,
+    rasterize, request_accessibility, run as run_main_loop, KeyTap, MacBackend, Overlay, Wake,
 };
 pub use mock::MockBackend;
 
@@ -117,6 +117,23 @@ pub enum InputEvent {
     Key(KeyEvent),
     Scroll(ScrollEvent),
     Mouse(MouseEvent),
+}
+
+/// A shape drawn on top of the desktop: a line around a rectangle, or a filled rectangle.
+///
+/// This is how focus rings, window borders and the hint for where a dragged window will land
+/// get on screen.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outline {
+    /// The outer edge of the shape, in global coordinates.
+    pub rect: Rect,
+    /// How wide the line is, measured inwards from `rect`. Zero fills the whole rectangle.
+    pub line_width: f64,
+    /// How round the outer corners are: top-left, top-right, bottom-right, bottom-left.
+    pub corner_radius: [f64; 4],
+    /// Red, green, blue and opacity, each from 0 to 1. The colors are sRGB and are not
+    /// multiplied by the opacity.
+    pub color: [f32; 4],
 }
 
 /// Identifies a window for as long as it exists. Never reused within one backend.
@@ -253,4 +270,8 @@ pub trait WindowBackend {
 
     /// Returns what happened since the last call, oldest first.
     fn drain_events(&mut self) -> Vec<Event>;
+
+    /// Shows exactly these outlines on top of the desktop, replacing whatever was shown.
+    /// Later ones are drawn over earlier ones.
+    fn set_outlines(&mut self, outlines: &[Outline]);
 }
