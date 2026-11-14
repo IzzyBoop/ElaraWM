@@ -648,7 +648,7 @@ pub fn spawn_at_startup(config: &niri_config::Config) {
 }
 
 /// Starts a program, detached from ElaraWM.
-fn spawn(command: Vec<String>) {
+pub fn spawn(command: Vec<String>) {
     let Some((program, args)) = command.split_first() else {
         return;
     };

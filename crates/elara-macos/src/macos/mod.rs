@@ -1,9 +1,11 @@
 //! The real backend: AppKit for displays and applications, the Accessibility API for windows.
 
+mod app;
 mod ax;
 mod backend;
 mod display;
 mod keys;
+mod menu_bar;
 mod overlay;
 mod run_loop;
 mod spaces;
@@ -14,8 +16,10 @@ use objc2_application_services::{
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFPreferencesCopyAppValue, CFString, CFType};
 use objc2_foundation::MainThreadMarker;
 
+pub use self::app::{alert, bundle_identifier, set_start_at_login, start_at_login};
 pub use self::backend::MacBackend;
 pub use self::keys::{character_for_keycode, KeyTap};
+pub use self::menu_bar::{MenuBar, MenuCommand};
 pub use self::overlay::{rasterize, Overlay};
 pub use self::run_loop::{run, Wake};
 use crate::DisplayInfo;

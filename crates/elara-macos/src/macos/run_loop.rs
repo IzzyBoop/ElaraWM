@@ -1,12 +1,20 @@
-//! Running the main thread's run loop.
+//! Running the main thread's run loop, as an AppKit application.
+//!
+//! ElaraWM owns windows (the overlay) and a menu bar item, and those only respond to the
+//! user if AppKit's own event loop is the one running: it is what takes clicks off the queue
+//! and hands them to menus. That loop sits on top of the main thread's Core Foundation run
+//! loop, which is where everything else here is delivered.
 
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSEventType,
+};
 use objc2_core_foundation::{
-    kCFRunLoopDefaultMode, CFAbsoluteTimeGetCurrent, CFRetained, CFRunLoop, CFRunLoopActivity,
-    CFRunLoopObserver, CFRunLoopObserverContext, CFRunLoopTimer, CFRunLoopTimerContext,
+    kCFRunLoopCommonModes, CFAbsoluteTimeGetCurrent, CFRetained, CFRunLoop, CFRunLoopActivity,
+    CFRunLoopObserver, CFRunLoopObserverContext, CFRunLoopTimer, CFRunLoopTimerContext, CGPoint,
 };
 use objc2_foundation::MainThreadMarker;
 
@@ -69,9 +77,7 @@ unsafe fn wake(info: *mut c_void, from_timer: bool) {
 
     let delay = match next {
         Wake::Stop => {
-            if let Some(run_loop) = CFRunLoop::main() {
-                run_loop.stop();
-            }
+            stop_application();
             return;
         }
         Wake::WhenNeeded => context.idle_interval,
@@ -79,6 +85,30 @@ unsafe fn wake(info: *mut c_void, from_timer: bool) {
     };
     if let Some(timer) = &context.timer {
         timer.set_next_fire_date(CFAbsoluteTimeGetCurrent() + delay.as_secs_f64());
+    }
+}
+
+/// Makes `NSApplication::run()` return.
+fn stop_application() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    app.stop(None);
+    // `stop` only takes effect once the loop has handled an event, so give it one.
+    let event = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+        NSEventType::ApplicationDefined,
+        CGPoint::new(0., 0.),
+        NSEventModifierFlags::empty(),
+        0.,
+        0,
+        None,
+        0,
+        0,
+        0,
+    );
+    if let Some(event) = event {
+        app.postEvent_atStart(&event, true);
     }
 }
 
@@ -96,8 +126,8 @@ unsafe extern "C-unwind" fn timer_fired(_timer: *mut CFRunLoopTimer, info: *mut 
     unsafe { wake(info, true) }
 }
 
-/// Runs the main run loop, calling `on_wake` each time the loop has handled what was pending
-/// and is about to sleep, and at least once every `idle_interval`.
+/// Runs the application's event loop, calling `on_wake` each time the loop has handled what was
+/// pending and is about to sleep, and at least once every `idle_interval`.
 ///
 /// This is what delivers a backend's events: Accessibility and workspace notifications arrive as
 /// run loop sources, and `on_wake` runs right after them. `on_wake` says when it wants to run
@@ -107,7 +137,7 @@ unsafe extern "C-unwind" fn timer_fired(_timer: *mut CFRunLoopTimer, info: *mut 
 ///
 /// Panics if called from a thread other than the main thread.
 pub fn run(idle_interval: Duration, mut on_wake: impl FnMut() -> Wake) {
-    MainThreadMarker::new().expect("the run loop must be run on the main thread");
+    let mtm = MainThreadMarker::new().expect("the run loop must be run on the main thread");
     let run_loop = CFRunLoop::main().expect("the main thread has a run loop");
 
     let mut context = Context {
@@ -162,12 +192,17 @@ pub fn run(idle_interval: Duration, mut on_wake: impl FnMut() -> Wake) {
     // SAFETY: nothing calls back before the run loop runs, so this is the only access.
     unsafe { (*info.cast::<Context<'_>>()).timer = Some(timer.clone()) };
 
+    // The common modes include the one the loop is in while a menu is open, so that windows
+    // keep being looked after while the user reads the menu.
     // SAFETY: the mode constant is a valid static.
-    let mode = unsafe { kCFRunLoopDefaultMode };
+    let mode = unsafe { kCFRunLoopCommonModes };
     run_loop.add_observer(Some(&observer), mode);
     run_loop.add_timer(Some(&timer), mode);
 
-    CFRunLoop::run();
+    // An accessory: no Dock icon, no menu bar of its own, never the active application.
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    app.run();
 
     observer.invalidate();
     timer.invalidate();

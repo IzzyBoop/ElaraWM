@@ -15,8 +15,8 @@ Wayland/Smithay backend.
 - niri's animation clock stays in the core. The strip of columns and the workspaces glide
   (horizontal-view-movement and workspace-switch); everything else, including window open,
   close and resize, takes effect at once. `animations { off }` turns the glide off too.
-- Built as a cargo daemon for now. Keep macOS-facing code in `elara-macos` behind traits so a
-  `.app` bundle can wrap it later.
+- One binary, run either with `cargo run -p elara` or from `ElaraWM.app`, which
+  `tools/bundle-app.sh` builds around it. Keep macOS-facing code in `elara-macos`.
 - License is GPL-3.0-or-later.
 
 ## Layout
@@ -83,7 +83,8 @@ cargo run -p elara-macos --example probe            # permission, displays, wind
 cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
 ```
 
-**Do not run the `elara` binary to check something unless the user asked for a live run.** Once
+**Do not run the `elara` binary, or open `ElaraWM.app`, to check something unless the user asked
+for a live run.** Once
 the permission is granted it takes over the real desktop at once: it resizes and moves every
 window and intercepts the bound keys, for as long as it runs. The probe only reads. If `elara`
 is running and should not be, stop it with `pkill -INT -x elara`; SIGINT lets it give windows

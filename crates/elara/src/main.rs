@@ -78,6 +78,48 @@ fn warn_about_ignored_sections(config: &Config) {
     }
 }
 
+/// Sends everything written to standard error to a log file if ElaraWM was started as an
+/// application, where there is no terminal to read it in. Returns the file if so.
+///
+/// The log of the previous run is kept next to it, with `.1` added to its name.
+#[cfg(target_os = "macos")]
+fn log_to_file_without_terminal() -> Option<PathBuf> {
+    use std::io::IsTerminal;
+    use std::os::fd::AsRawFd;
+
+    if std::io::stderr().is_terminal() || elara_macos::bundle_identifier().is_none() {
+        return None;
+    }
+    let dir = PathBuf::from(std::env::var_os("HOME")?).join("Library/Logs/ElaraWM");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("elara.log");
+    let _ = std::fs::rename(&path, dir.join("elara.log.1"));
+    let file = std::fs::File::create(&path).ok()?;
+    // Standard error itself, so that the message of a panic lands in the file too.
+    // SAFETY: both are open file descriptors, and nothing else is running yet that could be
+    // writing to standard error.
+    let result = unsafe { libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO) };
+    (result != -1).then_some(path)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn log_to_file_without_terminal() -> Option<PathBuf> {
+    None
+}
+
+/// Reports why ElaraWM cannot go on: on standard error, and in a dialog if that is a file
+/// nobody is looking at.
+fn fail(log: Option<&PathBuf>, message: &str) {
+    eprintln!("elara: {message}");
+    #[cfg(target_os = "macos")]
+    if let Some(log) = log {
+        let text = format!("{message}\n\nThe log is at {}.", log.display());
+        elara_macos::alert("ElaraWM could not start", &text);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = log;
+}
+
 fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(Some(args)) => args,
@@ -88,26 +130,32 @@ fn main() -> ExitCode {
         }
     };
 
+    let log = log_to_file_without_terminal();
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
+        .with_ansi(log.is_none())
         .init();
 
     let (config, config_path) = match load_config(args.config) {
         Ok(loaded) => loaded,
         Err(message) => {
-            eprintln!("elara: the config could not be loaded:\n{message}");
+            fail(
+                log.as_ref(),
+                &format!("The config could not be loaded:\n{message}"),
+            );
             return ExitCode::FAILURE;
         }
     };
 
-    run(config, config_path)
+    run(config, config_path, log)
 }
 
 #[cfg(target_os = "macos")]
-fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
+fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> ExitCode {
     use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -120,7 +168,10 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     use elara::pointer::{PointerHandler, PointerInput};
     use elara::scroll::{ScrollHandler, ScrollInput};
     use elara::State;
-    use elara_macos::{request_accessibility, run_main_loop, InputEvent, KeyTap, MacBackend, Wake};
+    use elara_macos::{
+        accessibility_trusted, request_accessibility, run_main_loop, InputEvent, KeyTap,
+        MacBackend, MenuBar, MenuCommand, Wake,
+    };
 
     /// How long to wait between frames of an animation. Each frame moves windows in other
     /// applications, which takes a few milliseconds, so this is the pause between frames
@@ -133,17 +184,105 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
         Pointer(PointerInput),
     }
 
+    /// The mark shown in the menu bar.
+    const MARK: &[u8] = include_bytes!("../../../resources/icons/elara.svg");
+
+    // On Ctrl-C or a termination request, leave through the normal path so that windows on
+    // other workspaces are brought back on screen first.
+    let quit = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        if let Err(err) = signal_hook::flag::register(signal, Arc::clone(&quit)) {
+            tracing::warn!("could not install handler for signal {signal}: {err}");
+        }
+    }
+
+    let mut menu = MenuBar::new(MARK);
+    menu.set_log_available(log.is_some());
+    menu.set_start_at_login(elara_macos::start_at_login());
+
+    // Carries out what was chosen from the menu. Returns whether that was to quit.
+    let run_menu_commands = {
+        let config_path = config_path.clone();
+        let log = log.clone();
+        move |menu: &mut MenuBar| {
+            let mut quit = false;
+            for command in menu.take_commands() {
+                match command {
+                    MenuCommand::OpenConfig => match &config_path {
+                        // In a text editor: nothing is registered to open `.kdl` files.
+                        Some(path) => elara::spawn(vec![
+                            "/usr/bin/open".to_owned(),
+                            "-t".to_owned(),
+                            path.display().to_string(),
+                        ]),
+                        None => tracing::warn!("there is no config file to open"),
+                    },
+                    MenuCommand::ShowLog => {
+                        if let Some(log) = &log {
+                            elara::spawn(vec![
+                                "/usr/bin/open".to_owned(),
+                                log.display().to_string(),
+                            ]);
+                        }
+                    }
+                    MenuCommand::ToggleStartAtLogin => {
+                        let was_on = elara_macos::start_at_login().unwrap_or(false);
+                        match elara_macos::set_start_at_login(!was_on) {
+                            Ok(on) => {
+                                if !was_on && !on {
+                                    tracing::warn!(
+                                        "ElaraWM is switched off in System Settings > General > \
+                                         Login Items; switch it on there to start it at login"
+                                    );
+                                }
+                                menu.set_start_at_login(Some(on));
+                            }
+                            Err(message) => {
+                                tracing::error!("could not change starting at login: {message}");
+                            }
+                        }
+                    }
+                    MenuCommand::Quit => quit = true,
+                }
+            }
+            quit
+        }
+    };
+
     // Shows the system dialog pointing at the right settings pane if the permission is missing.
     if !request_accessibility() {
-        eprintln!(
-            "elara: the Accessibility permission has not been granted.\n\
-             \n\
-             ElaraWM moves and resizes other applications' windows, which macOS only allows\n\
-             with this permission. Grant it to the application you launched elara from (your\n\
-             terminal or editor) in System Settings > Privacy & Security > Accessibility,\n\
-             then start elara again."
-        );
-        return ExitCode::FAILURE;
+        if log.is_none() {
+            eprintln!(
+                "elara: the Accessibility permission has not been granted.\n\
+                 \n\
+                 ElaraWM moves and resizes other applications' windows, which macOS only allows\n\
+                 with this permission. Grant it to the application you launched elara from (your\n\
+                 terminal or editor) in System Settings > Privacy & Security > Accessibility,\n\
+                 then start elara again."
+            );
+            return ExitCode::FAILURE;
+        }
+
+        // Started as an application: the permission is ElaraWM's own, and the user is on
+        // their way to grant it. Wait in the menu bar until they have.
+        tracing::info!("waiting for the Accessibility permission");
+        menu.set_status("Waiting for the Accessibility permission");
+        let mut granted = false;
+        run_main_loop(Duration::from_millis(500), || {
+            if run_menu_commands(&mut menu) || quit.load(Ordering::Relaxed) {
+                return Wake::Stop;
+            }
+            granted = accessibility_trusted();
+            if granted {
+                Wake::Stop
+            } else {
+                Wake::WhenNeeded
+            }
+        });
+        if !granted {
+            return ExitCode::SUCCESS;
+        }
+        tracing::info!("the Accessibility permission was granted");
     }
 
     match elara_macos::displays_have_separate_spaces() {
@@ -158,19 +297,10 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     let backend = match MacBackend::new() {
         Ok(backend) => backend,
         Err(err) => {
-            eprintln!("elara: could not start: {err}");
+            fail(log.as_ref(), &format!("Could not start: {err}"));
             return ExitCode::FAILURE;
         }
     };
-
-    // On Ctrl-C or a termination request, leave through the normal path so that windows on
-    // other workspaces are brought back on screen first.
-    let quit = Arc::new(AtomicBool::new(false));
-    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-        if let Err(err) = signal_hook::flag::register(signal, Arc::clone(&quit)) {
-            tracing::warn!("could not install handler for signal {signal}: {err}");
-        }
-    }
 
     elara::spawn_at_startup(&config);
     let mut watcher = config_path.map(config::ConfigWatcher::new);
@@ -259,7 +389,7 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
     // The interval bounds how long a signal waits to be noticed and how often applications
     // that were not ready to be observed are retried.
     run_main_loop(Duration::from_millis(250), || {
-        if quit.load(Ordering::Relaxed) {
+        if run_menu_commands(&mut menu) || quit.load(Ordering::Relaxed) {
             return Wake::Stop;
         }
         let mut state = state.borrow_mut();
@@ -305,6 +435,9 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
             crashed = true;
             return Wake::Stop;
         }
+        if let Some(label) = state.workspace_label() {
+            menu.set_workspace(&label);
+        }
         if state.should_quit() {
             Wake::Stop
         } else if state.is_animating() {
@@ -316,6 +449,7 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
 
     // Stop intercepting keys before anything else.
     drop(tap);
+    drop(menu);
     let mut state = state.borrow_mut();
 
     tracing::info!("bringing windows back on screen");
@@ -325,6 +459,10 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
 
     if crashed {
         eprintln!("elara: stopped after an internal error; see the message above.");
+        if let Some(log) = &log {
+            let text = format!("The log has the details: {}", log.display());
+            elara_macos::alert("ElaraWM stopped after an internal error", &text);
+        }
         ExitCode::from(101)
     } else {
         ExitCode::SUCCESS
@@ -332,7 +470,7 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn run(_config: Config, _config_path: Option<PathBuf>) -> ExitCode {
+fn run(_config: Config, _config_path: Option<PathBuf>, _log: Option<PathBuf>) -> ExitCode {
     eprintln!("elara: only macOS is supported.");
     ExitCode::FAILURE
 }

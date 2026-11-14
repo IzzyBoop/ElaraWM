@@ -858,6 +858,14 @@ impl<B: WindowBackend> State<B> {
         !self.backend.home_space_active()
     }
 
+    /// What to call the workspace that is showing on the focused display: its name if it
+    /// has one, and otherwise its number counted from 1, as in `focus-workspace 2`.
+    pub fn workspace_label(&self) -> Option<String> {
+        let monitor = self.layout.active_monitor_ref()?;
+        let name = monitor.active_workspace_ref().name().cloned();
+        Some(name.unwrap_or_else(|| (monitor.active_workspace_idx() + 1).to_string()))
+    }
+
     /// Whether the `quit` action has run.
     pub fn should_quit(&self) -> bool {
         self.quit_requested

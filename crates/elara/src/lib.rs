@@ -17,6 +17,6 @@ pub mod scroll;
 mod state;
 mod window;
 
-pub use actions::spawn_at_startup;
+pub use actions::{spawn, spawn_at_startup};
 pub use state::State;
 pub use window::Window;

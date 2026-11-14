@@ -424,3 +424,16 @@ fn a_column_in_the_right_half_can_grow_past_what_fits_from_there() {
     state.do_action(Action::SetColumnWidth(SizeChange::SetFixed(1500)));
     assert_eq!(frame(&state, b).w, 1500.);
 }
+
+#[test]
+fn the_workspace_label_is_the_number_or_the_name() {
+    let (mut state, _, _) = two_columns();
+    assert_eq!(state.workspace_label().as_deref(), Some("1"));
+
+    state.do_action(Action::FocusWorkspaceDown);
+    assert_eq!(state.workspace_label().as_deref(), Some("2"));
+
+    let config = Config::parse_mem("workspace \"chat\"").unwrap();
+    let state = State::new(MockBackend::with_laptop_display(), config);
+    assert_eq!(state.workspace_label().as_deref(), Some("chat"));
+}

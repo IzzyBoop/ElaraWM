@@ -24,8 +24,9 @@ use std::fmt;
 pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
 pub use macos::{
-    accessibility_trusted, character_for_keycode, displays, displays_have_separate_spaces,
-    rasterize, request_accessibility, run as run_main_loop, KeyTap, MacBackend, Overlay, Wake,
+    accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
+    displays_have_separate_spaces, rasterize, request_accessibility, run as run_main_loop,
+    set_start_at_login, start_at_login, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay, Wake,
 };
 pub use mock::MockBackend;
 
