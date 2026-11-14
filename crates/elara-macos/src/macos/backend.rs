@@ -567,6 +567,10 @@ impl WindowBackend for MacBackend {
         self.windows.values().map(|w| w.info.clone()).collect()
     }
 
+    fn window_frame(&self, window: WindowId) -> Option<Rect> {
+        self.windows.get(&window).map(|w| w.info.frame)
+    }
+
     fn focused_window(&self) -> Option<WindowId> {
         self.focused
     }
@@ -589,13 +593,15 @@ impl WindowBackend for MacBackend {
             ax::set_size(element, frame.w, frame.h).map_err(err)?;
         }
 
-        // What the window ended up with is the truth, whatever was asked for. The change is not
-        // recorded here: the application will also send move and resize notifications, and
-        // `refresh_frame()` reports the change once, from those.
-        ax::frame(element).ok_or(Error::Unresponsive {
+        // What the window ended up with is the truth, whatever was asked for. The change is
+        // not reported as an event here: the application will also send move and resize
+        // notifications, and `refresh_frame()` reports it from those.
+        let actual = ax::frame(element).ok_or(Error::Unresponsive {
             window: id,
             code: AXError::CannotComplete.0,
-        })
+        })?;
+        window.info.frame = actual;
+        Ok(actual)
     }
 
     fn focus(&mut self, id: WindowId) -> Result<(), Error> {

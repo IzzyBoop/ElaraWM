@@ -167,6 +167,9 @@ pub trait WindowBackend {
     /// Lists every window currently known, in no particular order.
     fn windows(&self) -> Vec<WindowInfo>;
 
+    /// Returns the frame a window has now, as far as is known.
+    fn window_frame(&self, window: WindowId) -> Option<Rect>;
+
     /// Returns the window that has keyboard focus, if it is a known window.
     fn focused_window(&self) -> Option<WindowId>;
 

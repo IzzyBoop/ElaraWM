@@ -106,6 +106,7 @@ fn preset_widths_cycle_and_maximize_fills_the_working_area() {
 
     state.do_action(Action::MaximizeColumn);
     assert_eq!(width(&state), USABLE.w - GAP * 2.);
+    assert_eq!(frame(&state, a).x, GAP);
     state.do_action(Action::MaximizeColumn);
     assert_eq!(width(&state), preset(0.66667));
 
@@ -191,8 +192,17 @@ fn moving_a_column_to_another_workspace_follows_it() {
 fn fullscreen_covers_the_display_and_can_be_undone() {
     let (mut state, a, b) = two_columns();
 
+    // niri's fullscreen is the whole display. macOS keeps windows out from under the menu bar,
+    // so the window ends up with everything below it.
     state.do_action(Action::FullscreenWindow);
-    assert_eq!(frame(&state, b), SCREEN);
+    assert_eq!(frame(&state, b), USABLE);
+
+    // It is not asked again and again for the part it cannot have.
+    state.backend_mut().take_frame_requests();
+    state.tick();
+    state.tick();
+    let again = state.backend_mut().take_frame_requests();
+    assert!(again.is_empty(), "{again:?}");
 
     state.do_action(Action::FullscreenWindow);
     assert_eq!(frame(&state, b), column(1));
@@ -382,4 +392,35 @@ fn a_key_press_runs_the_bound_action() {
     // Command+Left is not bound and is left to the application.
     press(&mut state, Keysym::Left, Modifiers::SUPER);
     assert_eq!(focused(&state), Some(a));
+}
+
+#[test]
+fn a_column_in_the_right_half_can_grow_past_what_fits_from_there() {
+    let (mut state, _a, b) = two_columns();
+    assert_eq!(frame(&state, b), column(1));
+
+    // `b` starts mid-screen. Full width does not fit between there and the right edge; the
+    // view has to scroll so that the column starts at the left.
+    state.do_action(Action::MaximizeColumn);
+    assert_eq!(
+        frame(&state, b),
+        Rect::new(GAP, USABLE.y + GAP, USABLE.w - GAP * 2., COLUMN_H)
+    );
+
+    state.do_action(Action::MaximizeColumn);
+    assert_eq!(frame(&state, b).w, COLUMN_W);
+
+    // Two thirds does not fit from mid-screen either. Put the column back there first.
+    state.do_action(Action::FocusColumnLeft);
+    state.do_action(Action::FocusColumnRight);
+    assert_eq!(frame(&state, b), column(1));
+    state.do_action(Action::SwitchPresetColumnWidth);
+    let two_thirds = ((USABLE.w - GAP) * 0.66667 - GAP).floor();
+    assert_eq!(frame(&state, b).w, two_thirds);
+    assert_eq!(frame(&state, b).max_x(), USABLE.max_x() - GAP);
+
+    // Being cut short at the screen edge is not the window refusing a size: afterwards it can
+    // still be given any width.
+    state.do_action(Action::SetColumnWidth(SizeChange::SetFixed(1500)));
+    assert_eq!(frame(&state, b).w, 1500.);
 }
