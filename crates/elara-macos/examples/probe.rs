@@ -74,6 +74,16 @@ fn main() {
         }
     };
 
+    println!();
+    println!(
+        "Can tell macOS Spaces apart: {}",
+        if backend.can_tell_spaces() {
+            "yes"
+        } else {
+            "no (every window is taken to be on this Space)"
+        }
+    );
+
     let focused = backend.focused_window();
     let mut windows = backend.windows();
     windows.sort_by_key(|w| w.id);
@@ -81,7 +91,7 @@ fn main() {
     println!("Windows ({}):", windows.len());
     for w in windows {
         println!(
-            "  #{:<3} {:<34} {:?} {}x{} at ({}, {}){}{}{}{}{}{}",
+            "  #{:<3} {:<34} {:?} {}x{} at ({}, {}){}{}{}{}{}{}{}",
             w.id.0,
             w.app_id.as_deref().unwrap_or("(no bundle id)"),
             w.kind,
@@ -93,6 +103,11 @@ fn main() {
             if w.movable { "" } else { " immovable" },
             if w.minimized { " minimized" } else { "" },
             if w.fullscreen { " fullscreen" } else { "" },
+            if w.on_other_space {
+                " on-another-Space"
+            } else {
+                ""
+            },
             if focused == Some(w.id) {
                 " focused"
             } else {

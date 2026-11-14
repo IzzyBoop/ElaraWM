@@ -192,6 +192,8 @@ pub struct WindowInfo {
     pub minimized: bool,
     /// Whether the window is in macOS native fullscreen, on a Space of its own.
     pub fullscreen: bool,
+    /// Whether the window is on a macOS Space other than the one ElaraWM manages.
+    pub on_other_space: bool,
 }
 
 /// Something that happened to a window or display since events were last drained.
@@ -209,6 +211,9 @@ pub enum Event {
     WindowMinimized(WindowId, bool),
     /// A window entered (`true`) or left (`false`) native fullscreen.
     WindowFullscreen(WindowId, bool),
+    /// A window turned out to be on another macOS Space than the one ElaraWM manages
+    /// (`true`), or showed up on that one (`false`).
+    WindowOnOtherSpace(WindowId, bool),
     /// Keyboard focus moved to this window, or to nothing that is tracked.
     FocusChanged(Option<WindowId>),
     /// Displays were connected, disconnected, rearranged or reconfigured.
@@ -270,6 +275,13 @@ pub trait WindowBackend {
 
     /// Returns what happened since the last call, oldest first.
     fn drain_events(&mut self) -> Vec<Event>;
+
+    /// Whether the user is looking at the macOS Space ElaraWM manages, which is the one that
+    /// was showing when it started. While they are looking at another, nothing ElaraWM
+    /// manages is in front of them.
+    fn home_space_active(&self) -> bool {
+        true
+    }
 
     /// Shows exactly these outlines on top of the desktop, replacing whatever was shown.
     /// Later ones are drawn over earlier ones.

@@ -34,7 +34,6 @@ struct Surface {
     shapes: Vec<Retained<CAShapeLayer>>,
     /// What is drawn now, in the container's coordinates.
     outlines: Vec<Outline>,
-    visible: bool,
 }
 
 /// The overlay windows, one per display.
@@ -103,8 +102,6 @@ impl Overlay {
                 .position(|surface| surface.display == display.id);
             let surface = match idx {
                 Some(idx) => &mut self.surfaces[idx],
-                // No window is made for a display until there is something to show on it.
-                None if local.is_empty() => continue,
                 None => {
                     self.surfaces
                         .push(Surface::new(self.mtm, display, primary_height));
@@ -202,6 +199,10 @@ impl Surface {
         view.setLayer(Some(&root));
         view.setWantsLayer(true);
         window.setContentView(Some(&view));
+        // The window stays on screen even with nothing to show. It is on the Space that was
+        // active when it was made and stays there, so whether it is on screen says whether
+        // the user is looking at that Space.
+        window.orderFrontRegardless();
 
         Self {
             display: display.id,
@@ -210,7 +211,6 @@ impl Surface {
             container,
             shapes: Vec::new(),
             outlines: Vec::new(),
-            visible: false,
         }
     }
 
@@ -257,14 +257,8 @@ impl Surface {
         }
         self.outlines = outlines;
 
-        let show = !self.outlines.is_empty();
-        if show {
-            // Whatever was raised since the last change may be covering the outlines.
-            self.window.orderFrontRegardless();
-        } else if self.visible {
-            self.window.orderOut(None);
-        }
-        self.visible = show;
+        // Whatever was raised since the last change may be covering the outlines.
+        self.window.orderFrontRegardless();
     }
 }
 

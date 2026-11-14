@@ -60,6 +60,11 @@ changes. If an edit has an error, the error is printed and the previous config s
   gradient is drawn as its first color. macOS does not say how round a window's corners are,
   so they are taken to have a radius of 16; set `geometry-corner-radius` in a window rule if
   the ring does not hug your windows.
+- ElaraWM arranges the windows of one macOS Space: the one that is showing when it starts.
+  Windows on other Spaces are left as they are, and while you are on another Space ElaraWM
+  takes no keys and moves nothing. A window dragged onto its Space joins the layout, and one
+  dragged off it leaves, a second or two later. Workspaces in the niri sense are ElaraWM's
+  own and all live on that one Space.
 - Window rules match `app-id` against the application's bundle identifier, such as
   `com.apple.Terminal`.
 - Output names are display names, such as `"Built-in Retina Display"`.
