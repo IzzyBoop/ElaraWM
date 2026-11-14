@@ -13,6 +13,8 @@ struct MockWindow {
     info: WindowInfo,
     min_size: Size,
     max_size: Option<Size>,
+    /// The step the window's height moves in, if it only takes some heights.
+    height_step: Option<f64>,
 }
 
 /// A [`WindowBackend`] that keeps windows and displays in memory.
@@ -124,6 +126,7 @@ impl MockBackend {
                 info: info.clone(),
                 min_size: Size { w: 1., h: 1. },
                 max_size: None,
+                height_step: None,
             },
         );
         self.events.push(Event::WindowOpened(info));
@@ -135,6 +138,14 @@ impl MockBackend {
         if let Some(window) = self.windows.get_mut(&id) {
             window.min_size = min;
             window.max_size = max;
+        }
+    }
+
+    /// Makes the window take only heights that are a whole number of `step`s, the nearest
+    /// one to what is asked, as a terminal does with its rows of text.
+    pub fn set_height_step(&mut self, id: WindowId, step: f64) {
+        if let Some(window) = self.windows.get_mut(&id) {
+            window.height_step = Some(step);
         }
     }
 
@@ -238,7 +249,11 @@ impl MockBackend {
         }
         if window.info.resizable {
             let mut w = requested.w.max(window.min_size.w);
-            let mut h = requested.h.max(window.min_size.h);
+            let mut h = requested.h;
+            if let Some(step) = window.height_step {
+                h = ((h / step).round() * step).max(step);
+            }
+            let mut h = h.max(window.min_size.h);
             if let Some(max) = window.max_size {
                 w = w.min(max.w);
                 h = h.min(max.h);

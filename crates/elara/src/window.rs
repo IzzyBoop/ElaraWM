@@ -64,6 +64,10 @@ struct Inner {
     min_size: Cell<Size<i32, Logical>>,
     max_size: Cell<Size<i32, Logical>>,
 
+    /// For width and height: the last time the window took a size close to, but not, the
+    /// one asked for, as what was asked and what it took. See [`learn_limits_on_axis()`].
+    refusals: Cell<[Option<(i32, i32)>; 2]>,
+
     is_activated: Cell<bool>,
     is_active_in_column: Cell<bool>,
     is_floating: Cell<bool>,
@@ -90,6 +94,52 @@ enum InteractiveResize {
 /// sets `geometry-corner-radius`. This is the radius of a plain titled window; windows with
 /// a toolbar are rounder.
 pub const DEFAULT_CORNER_RADIUS: f32 = 16.;
+
+/// How far a window's answer may be from the size asked for and still be put down to the
+/// window rounding the size, not refusing it. Terminals only take sizes that fit a whole
+/// number of character cells, and a cell in a large font is about this big.
+const SIZE_STEP: i32 = 40;
+
+/// Updates what is known of a window's smallest and largest size along one axis, from the
+/// size it was asked to take and the size it took. Zero means the limit is not known.
+///
+/// A window that answers with a larger size has a minimum, and one that answers with a
+/// smaller size a maximum, unless it merely rounded: a terminal asked for 1098 points that
+/// takes 1104 has no minimum of 1104, and believing that it does leaves no room for a second
+/// window in its column. A far-off answer is a limit at once. A nearby one counts as a limit
+/// only once the same answer has come back to a different request, which rounding does not
+/// do. And a size the window takes later that is past a known limit disproves it.
+fn learn_limits_on_axis(
+    asked: i32,
+    got: i32,
+    learn: bool,
+    min: &mut i32,
+    max: &mut i32,
+    refusal: &mut Option<(i32, i32)>,
+) {
+    // The window is at a size the limits say it cannot have.
+    if *min > 0 && got < *min {
+        *min = 0;
+    }
+    if *max > 0 && got > *max {
+        *max = 0;
+    }
+
+    if !learn || got == asked {
+        return;
+    }
+
+    let repeated = matches!(*refusal, Some((before, answer)) if answer == got && before != asked);
+    if (got - asked).abs() > SIZE_STEP || repeated {
+        if got > asked {
+            *min = got;
+        } else {
+            *max = got;
+        }
+    } else {
+        *refusal = Some((asked, got));
+    }
+}
 
 fn size_of(frame: Rect) -> Size<i32, Logical> {
     Size::from((frame.w.round() as i32, frame.h.round() as i32))
@@ -122,6 +172,7 @@ impl Window {
             is_pending_windowed_fullscreen: Cell::new(false),
             min_size: Cell::new(limit),
             max_size: Cell::new(limit),
+            refusals: Cell::new([None; 2]),
             is_activated: Cell::new(false),
             is_active_in_column: Cell::new(true),
             is_floating: Cell::new(false),
@@ -203,23 +254,31 @@ impl Window {
         inner.last_request.set(Some(request));
         inner.frame.set(actual);
 
-        if inner.resizable && learn_limits {
+        if inner.resizable {
             let asked = size_of(request);
             let got = size_of(actual);
             let mut min = inner.min_size.get();
             let mut max = inner.max_size.get();
-            if got.w > asked.w {
-                min.w = got.w;
-            } else if got.w < asked.w {
-                max.w = got.w;
-            }
-            if got.h > asked.h {
-                min.h = got.h;
-            } else if got.h < asked.h {
-                max.h = got.h;
-            }
+            let mut refusals = inner.refusals.get();
+            learn_limits_on_axis(
+                asked.w,
+                got.w,
+                learn_limits,
+                &mut min.w,
+                &mut max.w,
+                &mut refusals[0],
+            );
+            learn_limits_on_axis(
+                asked.h,
+                got.h,
+                learn_limits,
+                &mut min.h,
+                &mut max.h,
+                &mut refusals[1],
+            );
             inner.min_size.set(min);
             inner.max_size.set(max);
+            inner.refusals.set(refusals);
         }
 
         inner.sizing_mode.set(inner.pending_sizing_mode.get());

@@ -5,7 +5,7 @@ use elara::State;
 use elara_macos::{
     DisplayId, DisplayInfo, MockBackend, Rect, Size, WindowBackend, WindowId, WindowKind,
 };
-use niri_config::Config;
+use niri_config::{Action, Config};
 
 /// The display `MockBackend::with_laptop_display()` creates.
 const SCREEN: Rect = Rect::new(0., 0., 1800., 1169.);
@@ -378,4 +378,61 @@ fn a_settled_layout_sends_no_requests() {
     }
 
     assert!(state.backend_mut().take_frame_requests().is_empty());
+}
+
+#[test]
+fn a_window_that_rounds_its_size_still_shares_a_column() {
+    // A terminal takes only heights that fit whole rows of text. Asked for the height of the
+    // screen it takes the nearest such height, which can be a little more. That is not the
+    // smallest it can be: it must still give up half the column to a second window.
+    let mut state = start(MockBackend::with_laptop_display());
+    let other = open(&mut state, "other");
+    let terminal = open(&mut state, "terminal");
+    state.backend_mut().set_height_step(terminal, 17.);
+    // Have it asked for its height again, now that it rounds.
+    state.do_action(Action::FocusColumnLeft);
+    state.do_action(Action::FocusColumnRight);
+    state.do_action(Action::MaximizeColumn);
+    state.do_action(Action::MaximizeColumn);
+    let alone = frame(&state, terminal);
+    assert_ne!(
+        alone.h, 1098.,
+        "the terminal should have rounded its height"
+    );
+
+    // Stack `terminal` under `other`.
+    state.do_action(Action::ConsumeOrExpelWindowLeft);
+
+    let (top, bottom) = (frame(&state, other), frame(&state, terminal));
+    assert_eq!(top.x, bottom.x);
+    // Both get about half, give or take a row of text.
+    for frame in [top, bottom] {
+        assert!((frame.h - 541.).abs() <= 17., "{top:?} {bottom:?}");
+    }
+    assert!(bottom.y >= top.max_y());
+}
+
+#[test]
+fn a_window_with_a_minimum_close_to_what_was_asked_is_found_out() {
+    // A window that will not go below 520 points, in a column where it is asked for 541 and
+    // then, once a third window joins, for less. The first answer could be rounding; the
+    // same answer to a different request is a limit.
+    let mut state = start(MockBackend::with_laptop_display());
+    let a = open(&mut state, "a");
+    let stubborn = open(&mut state, "stubborn");
+    let c = open(&mut state, "c");
+    state
+        .backend_mut()
+        .set_size_limits(stubborn, elara_macos::Size { w: 100., h: 520. }, None);
+    state.do_action(Action::FocusColumnFirst);
+    state.do_action(Action::ConsumeWindowIntoColumn);
+    state.do_action(Action::ConsumeWindowIntoColumn);
+
+    // Three windows in one column: `stubborn` keeps its 520 and the others share the rest
+    // without overlapping it.
+    let frames = [frame(&state, a), frame(&state, stubborn), frame(&state, c)];
+    assert_eq!(frames[1].h, 520., "{frames:?}");
+    assert!(frames[0].max_y() <= frames[1].y, "{frames:?}");
+    assert!(frames[1].max_y() <= frames[2].y, "{frames:?}");
+    assert!(frames[2].max_y() <= SCREEN.max_y(), "{frames:?}");
 }
