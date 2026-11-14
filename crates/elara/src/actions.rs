@@ -32,6 +32,7 @@ impl<B: WindowBackend> State<B> {
     /// happened.
     pub fn do_action(&mut self, action: Action) -> bool {
         debug!(?action, "action");
+        self.refresh_clock();
         let supported = self.dispatch(action);
         // Whatever the action did to the layout's focus, the system should follow.
         self.focus_dirty = true;

@@ -38,8 +38,10 @@ HEADER = """\
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.
-// - Windows are drawn by macOS. Focus rings, borders, shadows and animations are not shown
-//   yet, though their settings are accepted.
+// - Windows are drawn by macOS. Focus rings, borders and shadows are not shown yet, though
+//   their settings are accepted. Of the animations, the strip of columns sliding sideways
+//   and workspaces sliding up and down are shown; windows opening, closing and resizing
+//   take effect at once. `off` in the `animations` section turns the sliding off as well.
 
 """
 

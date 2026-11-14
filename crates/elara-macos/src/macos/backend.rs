@@ -580,16 +580,21 @@ impl WindowBackend for MacBackend {
         let element = &window.element;
         let err = |err| Self::error(id, err);
 
+        // A window that already has the size only needs moving. That is one request instead of
+        // three, which matters when windows are moved every frame.
+        let resize = window.info.resizable
+            && (window.info.frame.w != frame.w || window.info.frame.h != frame.h);
+
         // Size, position, size. A window is not allowed to extend past the display it is on, so
         // a resize can be cut short at the old position and has to be repeated at the new one;
         // and resizing first avoids the window briefly hanging off the display at the new one.
-        if window.info.resizable {
+        if resize {
             ax::set_size(element, frame.w, frame.h).map_err(err)?;
         }
         if window.info.movable {
             ax::set_position(element, frame.x, frame.y).map_err(err)?;
         }
-        if window.info.resizable {
+        if resize {
             ax::set_size(element, frame.w, frame.h).map_err(err)?;
         }
 
