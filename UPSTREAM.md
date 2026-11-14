@@ -43,12 +43,14 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/niri-config/tests/wiki-parses.rs` | `niri-config/tests/wiki-parses.rs` | modified: path to the wiki |
 | `crates/elara-layout/src/animation/` | `src/animation/` | verbatim |
 | `crates/elara-layout/src/layout/` | `src/layout/` | verbatim, tests included |
-| `crates/elara-layout/src/layout/workspace.rs` | `src/layout/workspace.rs` | modified: `configure_new_window()` removed |
+| `crates/elara-layout/src/layout/workspace.rs` | `src/layout/workspace.rs` | modified: `configure_new_window()` removed, `tab_indicator_outlines()` added |
 | `crates/elara-layout/src/layout/mod.rs` | `src/layout/mod.rs` | modified: `interactive_moved_tile()` added |
 | `crates/elara-layout/src/layout/focus_ring.rs` | `src/layout/focus_ring.rs` | modified: `outline()` added |
 | `crates/elara-layout/src/layout/insert_hint_element.rs` | `src/layout/insert_hint_element.rs` | modified: `outline()` added |
 | `crates/elara-layout/src/layout/monitor.rs` | `src/layout/monitor.rs` | modified: `insert_hint_outline()` added |
 | `crates/elara-layout/src/layout/tile.rs` | `src/layout/tile.rs` | modified: `outlines()` added |
+| `crates/elara-layout/src/layout/tab_indicator.rs` | `src/layout/tab_indicator.rs` | modified: `outlines()` added |
+| `crates/elara-layout/src/layout/scrolling.rs` | `src/layout/scrolling.rs` | modified: `tab_indicator_outlines()` added |
 | `crates/elara-layout/src/rubber_band.rs` | `src/rubber_band.rs` | verbatim |
 | `crates/elara-layout/src/input/swipe_tracker.rs` | `src/input/swipe_tracker.rs` | verbatim |
 | `crates/elara-layout/src/utils/id.rs` | `src/utils/id.rs` | verbatim |

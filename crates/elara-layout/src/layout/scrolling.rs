@@ -20,6 +20,7 @@ use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::SizingMode;
 use crate::niri_render_elements;
+use crate::render_helpers::border::Parameters;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::xray::XrayPos;
 use crate::render_helpers::RenderCtx;
@@ -2896,6 +2897,25 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         self.columns[self.active_column_idx]
             .sizing_mode()
             .is_fullscreen()
+    }
+
+    // ELARA: niri places each column's tab indicator while rendering, in `render()` below.
+    // ElaraWM draws them itself and asks where.
+    /// Returns the tabs of every tabbed column: for each, its rectangle within the workspace
+    /// and the parameters it is drawn with.
+    pub fn tab_indicator_outlines(
+        &self,
+    ) -> impl Iterator<Item = (Rectangle<f64, Logical>, &Parameters)> + '_ {
+        let scale = Scale::from(self.scale);
+        let view_off = Point::from((-self.view_pos(), 0.));
+        self.columns_in_render_order()
+            .flat_map(move |(col, col_x)| {
+                let pos = view_off + Point::from((col_x, 0.)) + col.render_offset();
+                let pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                col.tab_indicator.outlines().map(move |(rect, parameters)| {
+                    (Rectangle::new(rect.loc + pos, rect.size), parameters)
+                })
+            })
     }
 
     pub fn render<R: NiriRenderer>(

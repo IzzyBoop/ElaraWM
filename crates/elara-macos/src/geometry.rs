@@ -58,6 +58,14 @@ impl Rect {
     }
 
     /// Whether the two rectangles share any area.
+    /// Whether `other` lies entirely within this rectangle.
+    pub fn contains_rect(&self, other: &Rect) -> bool {
+        other.x >= self.x
+            && other.y >= self.y
+            && other.max_x() <= self.max_x()
+            && other.max_y() <= self.max_y()
+    }
+
     pub fn intersects(&self, other: &Rect) -> bool {
         self.x < other.max_x()
             && other.x < self.max_x()

@@ -13,6 +13,7 @@
 //! decides which mouse events applications never get to see. The methods on [`State`] carry
 //! them out against the layout.
 
+use elara_layout::layout::HitType;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_macos::{
     MouseButton, MouseEvent, MouseEventKind, Point as GlobalPoint, WindowBackend, WindowId,
@@ -37,6 +38,8 @@ pub enum PointerInput {
     Press {
         button: MouseButton,
         position: GlobalPoint,
+        /// Whether the mod key was held.
+        mod_down: bool,
     },
     Motion {
         position: GlobalPoint,
@@ -74,10 +77,10 @@ impl PointerResponse {
 
 /// Decides, mouse event by mouse event, which ones are for the window manager.
 ///
-/// A press with the mod key held on a managed window starts a grab. From then until that
-/// button is released, every mouse event belongs to the window manager, whether or not the mod
-/// key is still held: an application that never saw the button go down must not see it come
-/// up.
+/// A press with the mod key held on a managed window starts a grab, and so does a plain
+/// press on the tab of a tabbed column. From then until that button is released, every mouse event
+/// belongs to the window manager, whether or not the mod key is still held: an application that
+/// never saw the button go down must not see it come up.
 #[derive(Debug, Default)]
 pub struct PointerHandler {
     /// The button that started the grab in progress.
@@ -91,31 +94,36 @@ impl PointerHandler {
         Self::default()
     }
 
-    /// Handles one mouse event against `config`. `can_grab` says whether a press of this
-    /// button at this position would start a move or a resize; see [`State::can_grab`].
+    /// Handles one mouse event against `config`. `takes_press` says whether a press of this
+    /// button at this position, with the mod key held or not, is for the window manager; see
+    /// [`State::takes_press`].
     pub fn handle(
         &mut self,
         config: &Config,
         event: &MouseEvent,
-        can_grab: impl FnOnce(MouseButton, GlobalPoint) -> bool,
+        takes_press: impl FnOnce(MouseButton, GlobalPoint, bool) -> bool,
     ) -> PointerResponse {
         let position = event.position;
         match (event.kind, self.grab) {
             (MouseEventKind::Pressed(button), None) => {
                 // As in niri, other modifiers may be held as well.
                 let mod_down = modifiers(event.modifiers).contains(mod_key(config).to_modifiers());
-                if !mod_down || !can_grab(button, position) {
+                if !takes_press(button, position, mod_down) {
                     return PointerResponse::pass();
                 }
                 self.grab = Some(button);
                 self.other_down = false;
-                PointerResponse::swallow(vec![PointerInput::Press { button, position }])
+                PointerResponse::swallow(vec![PointerInput::Press {
+                    button,
+                    position,
+                    mod_down,
+                }])
             }
             (MouseEventKind::Pressed(button), Some(held)) if button == held => {
                 // The release never arrived, which happens if the system switched the tap off
                 // for a moment. End the old grab and treat this as a new press.
                 self.grab = None;
-                let mut response = self.handle(config, event, can_grab);
+                let mut response = self.handle(config, event, takes_press);
                 response
                     .inputs
                     .insert(0, PointerInput::Release { button: held });
@@ -123,7 +131,11 @@ impl PointerHandler {
             }
             (MouseEventKind::Pressed(button), Some(_)) => {
                 self.other_down = true;
-                PointerResponse::swallow(vec![PointerInput::Press { button, position }])
+                PointerResponse::swallow(vec![PointerInput::Press {
+                    button,
+                    position,
+                    mod_down: false,
+                }])
             }
             (MouseEventKind::Dragged, Some(_)) => {
                 PointerResponse::swallow(vec![PointerInput::Motion { position }])
@@ -204,8 +216,35 @@ impl<B: WindowBackend> State<B> {
         Some(window.window_id())
     }
 
+    /// Returns the window whose tab, in the tab indicator of a tabbed column, is at a point
+    /// in global coordinates.
+    fn tab_under(&self, position: GlobalPoint) -> Option<WindowId> {
+        let (output, pos_within_output) = self.output_under(position)?;
+        match self.layout.window_under(&output, pos_within_output)? {
+            (
+                window,
+                HitType::Activate {
+                    is_tab_indicator: true,
+                },
+            ) => Some(window.window_id()),
+            _ => None,
+        }
+    }
+
+    /// Whether a press of `button` at `position` is for the window manager, and so must be
+    /// kept from the application under the pointer. Without the mod key, that is a left
+    /// press on the tab of a tabbed column, which switches to that tab as in niri. With it,
+    /// see [`can_grab()`](Self::can_grab).
+    pub fn takes_press(&self, button: MouseButton, position: GlobalPoint, mod_down: bool) -> bool {
+        if mod_down {
+            self.can_grab(button, position)
+        } else {
+            button == MouseButton::Left && self.tab_under(position).is_some()
+        }
+    }
+
     /// Whether pressing `button` at `position` with the mod key held would start moving or
-    /// resizing a window, and so must be kept from the application under the pointer.
+    /// resizing a window.
     ///
     /// The layout decides which window is at a position, from where it put them. A window it
     /// does not manage, such as a menu or a popover, is not known to it: a press on one of
@@ -232,10 +271,35 @@ impl<B: WindowBackend> State<B> {
     pub fn pointer_input(&mut self, input: PointerInput) {
         self.refresh_clock();
         match input {
-            PointerInput::Press { button, position } => self.pointer_press(button, position),
+            PointerInput::Press {
+                button,
+                position,
+                mod_down: true,
+            } => self.pointer_press(button, position),
+            PointerInput::Press {
+                button,
+                position,
+                mod_down: false,
+            } => self.plain_press(button, position),
             PointerInput::Motion { position } => self.pointer_motion(position),
             PointerInput::Release { button } => self.pointer_release(button),
         }
+    }
+
+    /// A press without the mod key. During a move, it is the other button, which toggles
+    /// floating. Otherwise it was taken because it is on a tab.
+    fn plain_press(&mut self, button: MouseButton, position: GlobalPoint) {
+        if self.pointer_grab.is_some() {
+            self.pointer_press(button, position);
+            return;
+        }
+        let Some(window) = self.tab_under(position) else {
+            return;
+        };
+        debug!(id = window.0, "press on tab");
+        self.layout.activate_window(&window);
+        self.focus_dirty = true;
+        self.pointer_grab = Some(PointerGrab::Spent { button });
     }
 
     /// niri's `on_pointer_button()`, for a press with the mod key held.

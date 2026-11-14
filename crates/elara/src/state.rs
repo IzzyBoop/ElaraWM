@@ -965,8 +965,9 @@ impl<B: WindowBackend> State<B> {
         targets
     }
 
-    /// Returns what niri draws around and between windows: borders, the focus ring, and the
-    /// hint that shows where a window being dragged would land. Later entries go on top.
+    /// Returns what niri draws around and between windows: borders, the focus ring, the tabs
+    /// of tabbed columns, and the hint that shows where a window being dragged would land. Later
+    /// entries go on top.
     ///
     /// niri draws these under the windows, as part of the same picture. Here they go in a
     /// window of ElaraWM's own, on top of everything. That works because they lie outside the
@@ -976,6 +977,7 @@ impl<B: WindowBackend> State<B> {
         let mut hints = Vec::new();
         let mut floating = Vec::new();
         let mut moved = Vec::new();
+        let mut tabs = Vec::new();
 
         for mon in self.layout.monitors() {
             let Some(display) = self.display_for_output(mon.output()) else {
@@ -1019,6 +1021,23 @@ impl<B: WindowBackend> State<B> {
                 }
             }
 
+            // The tabs of tabbed columns, which niri draws on top of the windows.
+            for (ws, ws_geo) in mon.workspaces_with_render_geo() {
+                let ws_origin = (origin.x + ws_geo.loc.x, origin.y + ws_geo.loc.y);
+                for (rect, parameters) in ws.tab_indicator_outlines() {
+                    let tab = outline(rect, 0., parameters, ws_origin);
+                    // Tabs sit beside their column, and a column can be out of view, or on
+                    // a workspace that is sliding past the menu bar, where its windows are
+                    // hidden rather than shown out of place. So are its tabs.
+                    let sliding = ws_geo.loc.y != 0.;
+                    let in_view = display.info.frame.contains_rect(&tab.rect)
+                        && !(sliding && tab.rect.y < display.info.visible_frame.y);
+                    if in_view {
+                        tabs.push(tab);
+                    }
+                }
+            }
+
             if let Some((rect, parameters)) = mon.insert_hint_outline() {
                 hints.push(outline(rect, 0., parameters, (origin.x, origin.y)));
             }
@@ -1034,8 +1053,9 @@ impl<B: WindowBackend> State<B> {
             }
         }
 
-        // niri's order, bottom to top: tiled windows, the hint, floating windows, and the
-        // window being dragged.
+        // niri's order, bottom to top: tiled windows with their tabs, the hint, floating
+        // windows, and the window being dragged.
+        scrolling.extend(tabs);
         scrolling.extend(hints);
         scrolling.extend(floating);
         scrolling.extend(moved);

@@ -3,7 +3,7 @@
 use elara::config::default_config;
 use elara::pointer::PointerInput;
 use elara::State;
-use elara_macos::{MockBackend, MouseButton, Outline, Point, Rect, WindowId};
+use elara_macos::{MockBackend, MouseButton, Outline, Point, Rect, WindowBackend, WindowId};
 use niri_config::{Action, Config};
 
 const SCREEN: Rect = Rect::new(0., 0., 1800., 1169.);
@@ -190,6 +190,7 @@ fn dragging_a_window_shows_where_it_would_land() {
     state.pointer_input(PointerInput::Press {
         button: MouseButton::Left,
         position: from,
+        mod_down: true,
     });
     state.tick();
     for step in 1..=20 {
@@ -228,4 +229,97 @@ fn dragging_a_window_shows_where_it_would_land() {
     let drawn = outlines(&state);
     assert_eq!(drawn.len(), 1, "{drawn:?}");
     assert_eq!(drawn[0].rect, around(frame(&state, a), RING_WIDTH));
+}
+
+// Tabbed columns.
+
+/// One column holding `a` and `b` as tabs, with `a` showing.
+fn tabbed_column() -> (State<MockBackend>, [WindowId; 2]) {
+    let (mut state, [a, b]) = two_columns(default_config());
+    // Pull `b` into the first column, under `a`, then show the column as tabs.
+    state.do_action(Action::ConsumeWindowIntoColumn);
+    state.do_action(Action::ToggleColumnTabbedDisplay);
+    state.do_action(Action::FocusWindowTop);
+    (state, [a, b])
+}
+
+fn tabs(state: &State<MockBackend>) -> Vec<Outline> {
+    outlines(state)
+        .into_iter()
+        .filter(|outline| outline.line_width == 0.)
+        .collect()
+}
+
+#[test]
+fn a_tabbed_column_shows_one_window_and_a_tab_for_each() {
+    let (state, [a, b]) = tabbed_column();
+
+    // `a` fills the column; `b` is behind it, which here means out of sight.
+    let shown = frame(&state, a);
+    assert_eq!(shown.h, SCREEN.h - 39. - 2. * GAP);
+    assert_eq!(frame(&state, b).x, SCREEN.max_x() - 1.);
+
+    // Two tabs in the gap to the left of the column, one above the other.
+    let tabs = tabs(&state);
+    assert_eq!(tabs.len(), 2, "{tabs:?}");
+    for tab in &tabs {
+        assert!(tab.rect.max_x() <= shown.x, "{tab:?}");
+        assert!(tab.rect.x >= 0., "{tab:?}");
+        assert!(tab.rect.y >= shown.y && tab.rect.max_y() <= shown.max_y());
+    }
+    assert!(tabs[0].rect.max_y() <= tabs[1].rect.y);
+    // The tab of the window that is showing stands out from the other.
+    assert_ne!(tabs[0].color, tabs[1].color);
+
+    // The ring is still there, around the window that is showing.
+    assert!(outlines(&state)
+        .iter()
+        .any(|outline| outline.rect == around(shown, RING_WIDTH)));
+}
+
+#[test]
+fn a_stacked_column_has_no_tabs() {
+    let (mut state, _) = two_columns(default_config());
+    state.do_action(Action::ConsumeWindowIntoColumn);
+    assert!(tabs(&state).is_empty());
+}
+
+#[test]
+fn clicking_a_tab_switches_to_its_window() {
+    let (mut state, [a, b]) = tabbed_column();
+    let tabs_before = tabs(&state);
+    let second = tabs_before[1].rect;
+    let on_second = Point {
+        x: second.x + second.w / 2.,
+        y: second.y + second.h / 2.,
+    };
+    let shown = frame(&state, a);
+
+    // A plain press there is for the window manager; one on the window is not.
+    assert!(state.takes_press(MouseButton::Left, on_second, false));
+    assert!(!state.takes_press(MouseButton::Right, on_second, false));
+    let on_window = Point {
+        x: shown.x + 50.,
+        y: shown.y + 50.,
+    };
+    assert!(!state.takes_press(MouseButton::Left, on_window, false));
+
+    state.pointer_input(PointerInput::Press {
+        button: MouseButton::Left,
+        position: on_second,
+        mod_down: false,
+    });
+    state.pointer_input(PointerInput::Release {
+        button: MouseButton::Left,
+    });
+    state.tick();
+
+    // `b` took the place of `a`, and has focus.
+    assert_eq!(frame(&state, b), shown);
+    assert_eq!(frame(&state, a).x, SCREEN.max_x() - 1.);
+    assert_eq!(state.backend().focused_window(), Some(b));
+    // The highlight moved to the second tab.
+    let tabs_after = tabs(&state);
+    assert_eq!(tabs_after[1].color, tabs_before[0].color);
+    assert_eq!(tabs_after[0].color, tabs_before[1].color);
 }

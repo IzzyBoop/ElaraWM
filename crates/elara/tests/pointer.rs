@@ -60,7 +60,11 @@ fn two_columns() -> (State<MockBackend>, [WindowId; 2]) {
 }
 
 fn press(state: &mut State<MockBackend>, button: MouseButton, position: Point) {
-    state.pointer_input(PointerInput::Press { button, position });
+    state.pointer_input(PointerInput::Press {
+        button,
+        position,
+        mod_down: true,
+    });
     state.tick();
 }
 
@@ -97,15 +101,23 @@ fn a_press_without_the_mod_key_is_left_alone() {
     let at = point(100., 100.);
 
     let press = mouse(MouseEventKind::Pressed(MouseButton::Left), at, NONE);
-    let response = handler.handle(&config, &press, |_, _| true);
+    let response = handler.handle(&config, &press, |_, _, mod_down| mod_down);
     assert!(!response.swallow);
     assert!(response.inputs.is_empty());
 
     // Nor is the drag and release that follow it.
     let drag = mouse(MouseEventKind::Dragged, at, NONE);
-    assert!(!handler.handle(&config, &drag, |_, _| true).swallow);
+    assert!(
+        !handler
+            .handle(&config, &drag, |_, _, mod_down| mod_down)
+            .swallow
+    );
     let release = mouse(MouseEventKind::Released(MouseButton::Left), at, NONE);
-    assert!(!handler.handle(&config, &release, |_, _| true).swallow);
+    assert!(
+        !handler
+            .handle(&config, &release, |_, _, mod_down| mod_down)
+            .swallow
+    );
 }
 
 #[test]
@@ -117,7 +129,7 @@ fn a_mod_press_away_from_any_window_is_left_alone() {
         point(5., 5.),
         MOD,
     );
-    let response = handler.handle(&config, &press, |_, _| false);
+    let response = handler.handle(&config, &press, |_, _, _| false);
     assert!(!response.swallow);
     assert!(response.inputs.is_empty());
 }
@@ -130,41 +142,43 @@ fn a_mod_press_on_a_window_takes_everything_until_the_release() {
     let there = point(300., 100.);
 
     let press = mouse(MouseEventKind::Pressed(MouseButton::Left), at, MOD);
-    let response = handler.handle(&config, &press, |_, _| true);
+    let response = handler.handle(&config, &press, |_, _, mod_down| mod_down);
     assert!(response.swallow);
     assert_eq!(
         response.inputs,
         [PointerInput::Press {
             button: MouseButton::Left,
-            position: at
+            position: at,
+            mod_down: true
         }]
     );
 
     // The mod key may be let go mid-drag: the application never saw the button go down, so
     // it must not see the rest either.
     let drag = mouse(MouseEventKind::Dragged, there, NONE);
-    let response = handler.handle(&config, &drag, |_, _| panic!("not a press"));
+    let response = handler.handle(&config, &drag, |_, _, _| panic!("not a press"));
     assert!(response.swallow);
     assert_eq!(response.inputs, [PointerInput::Motion { position: there }]);
 
     // The other button, pressed and released during the drag.
     let other = mouse(MouseEventKind::Pressed(MouseButton::Right), there, NONE);
-    let response = handler.handle(&config, &other, |_, _| panic!("already grabbed"));
+    let response = handler.handle(&config, &other, |_, _, _| panic!("already grabbed"));
     assert!(response.swallow);
     assert_eq!(
         response.inputs,
         [PointerInput::Press {
             button: MouseButton::Right,
-            position: there
+            position: there,
+            mod_down: false
         }]
     );
     let other = mouse(MouseEventKind::Released(MouseButton::Right), there, NONE);
-    let response = handler.handle(&config, &other, |_, _| true);
+    let response = handler.handle(&config, &other, |_, _, mod_down| mod_down);
     assert!(response.swallow);
     assert!(response.inputs.is_empty());
 
     let release = mouse(MouseEventKind::Released(MouseButton::Left), there, NONE);
-    let response = handler.handle(&config, &release, |_, _| true);
+    let response = handler.handle(&config, &release, |_, _, mod_down| mod_down);
     assert!(response.swallow);
     assert_eq!(
         response.inputs,
@@ -175,7 +189,11 @@ fn a_mod_press_on_a_window_takes_everything_until_the_release() {
 
     // And then the mouse is the applications' again.
     let press = mouse(MouseEventKind::Pressed(MouseButton::Left), there, NONE);
-    assert!(!handler.handle(&config, &press, |_, _| true).swallow);
+    assert!(
+        !handler
+            .handle(&config, &press, |_, _, mod_down| mod_down)
+            .swallow
+    );
 }
 
 #[test]
@@ -185,9 +203,9 @@ fn a_press_whose_release_went_missing_starts_over() {
     let at = point(100., 100.);
 
     let press = mouse(MouseEventKind::Pressed(MouseButton::Left), at, MOD);
-    handler.handle(&config, &press, |_, _| true);
+    handler.handle(&config, &press, |_, _, mod_down| mod_down);
 
-    let response = handler.handle(&config, &press, |_, _| true);
+    let response = handler.handle(&config, &press, |_, _, mod_down| mod_down);
     assert!(response.swallow);
     assert_eq!(
         response.inputs,
@@ -197,7 +215,8 @@ fn a_press_whose_release_went_missing_starts_over() {
             },
             PointerInput::Press {
                 button: MouseButton::Left,
-                position: at
+                position: at,
+                mod_down: true
             }
         ]
     );
