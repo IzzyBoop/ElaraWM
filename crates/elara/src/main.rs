@@ -185,6 +185,14 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
             let response = key_handler.handle(state.config(), event);
             if response.action.is_some() {
                 tracing::debug!(repeat = event.is_repeat, "bound key pressed");
+            } else if event.pressed && event.modifiers != Default::default() {
+                // Only the key code and modifiers, never what is being typed.
+                tracing::trace!(
+                    keycode = event.keycode,
+                    modifiers = ?event.modifiers,
+                    has_character = event.character.is_some(),
+                    "key with modifiers is not bound"
+                );
             }
             if let Some(action) = response.action {
                 actions.borrow_mut().push_back(action);
