@@ -4,6 +4,7 @@ mod ax;
 mod backend;
 mod display;
 mod keys;
+mod overlay;
 mod run_loop;
 
 use objc2_application_services::{
@@ -14,6 +15,7 @@ use objc2_foundation::MainThreadMarker;
 
 pub use self::backend::MacBackend;
 pub use self::keys::{character_for_keycode, KeyTap};
+pub use self::overlay::{rasterize, Overlay};
 pub use self::run_loop::{run, Wake};
 use crate::DisplayInfo;
 

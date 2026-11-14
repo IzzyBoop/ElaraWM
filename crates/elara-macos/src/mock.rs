@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    DisplayId, DisplayInfo, Error, Event, Rect, Size, WindowBackend, WindowId, WindowInfo,
+    DisplayId, DisplayInfo, Error, Event, Outline, Rect, Size, WindowBackend, WindowId, WindowInfo,
     WindowKind,
 };
 
@@ -32,6 +32,8 @@ pub struct MockBackend {
     next_id: u64,
     /// Every `set_frame` request received, in order, for tests to inspect.
     frame_requests: Vec<(WindowId, Rect)>,
+    /// The outlines last asked for.
+    outlines: Vec<Outline>,
 }
 
 impl MockBackend {
@@ -197,6 +199,11 @@ impl MockBackend {
     }
 
     /// Returns every `set_frame` request received so far and forgets them.
+    /// Returns the outlines that are on screen.
+    pub fn outlines(&self) -> &[Outline] {
+        &self.outlines
+    }
+
     pub fn take_frame_requests(&mut self) -> Vec<(WindowId, Rect)> {
         std::mem::take(&mut self.frame_requests)
     }
@@ -294,6 +301,10 @@ impl WindowBackend for MockBackend {
 
     fn drain_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    fn set_outlines(&mut self, outlines: &[Outline]) {
+        self.outlines = outlines.to_vec();
     }
 }
 

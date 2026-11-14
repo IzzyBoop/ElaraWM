@@ -9,8 +9,8 @@ works with System Integrity Protection enabled.
 
 **Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
 workspaces, and driven by niri's key bindings and config file. The strip of columns and the
-workspaces glide into place; nothing is drawn yet, so there is no focus ring and there are no
-borders. It has had little use on a real desktop.
+workspaces glide into place. The focus ring, window borders and the hint for where a dragged
+window will land are drawn; shadows and the tab indicator are not yet. It has had little use on a real desktop.
 
 ## Goals
 
@@ -55,6 +55,11 @@ changes. If an edit has an error, the error is printed and the previous config s
   leaves its column and lands where it is dropped. Pressing the other button while moving
   switches it between floating and tiled. While ElaraWM runs, this replaces the macOS
   behaviour of an Option-click hiding the application you were in.
+- The focus ring, borders and the insert hint come from the `layout` section, as in niri. They
+  are drawn in a transparent window on top of the others, in the gaps between windows. A
+  gradient is drawn as its first color. macOS does not say how round a window's corners are,
+  so they are taken to have a radius of 16; set `geometry-corner-radius` in a window rule if
+  the ring does not hug your windows.
 - Window rules match `app-id` against the application's bundle identifier, such as
   `com.apple.Terminal`.
 - Output names are display names, such as `"Built-in Retina Display"`.

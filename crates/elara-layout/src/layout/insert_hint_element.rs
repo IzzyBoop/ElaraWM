@@ -2,6 +2,7 @@ use niri_config::CornerRadius;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
+use crate::render_helpers::border::Parameters;
 use crate::render_helpers::renderer::NiriRenderer;
 
 #[derive(Debug)]
@@ -53,6 +54,11 @@ impl InsertHintElement {
     ) {
         self.inner
             .update_render_elements(size, true, false, false, view_rect, radius, scale, 1.);
+    }
+
+    // ELARA: see `FocusRing::outline()`.
+    pub fn outline(&self) -> Option<(Rectangle<f64, Logical>, &Parameters)> {
+        self.inner.outline()
     }
 
     pub fn render(

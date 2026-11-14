@@ -12,6 +12,7 @@ use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::ResizeEdge;
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{Rect, WindowId, WindowInfo};
+use niri_config::CornerRadius;
 use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Serial, Size, Transform};
@@ -84,6 +85,11 @@ enum InteractiveResize {
     /// it, and the layout needs to know which edges were dragged when that size arrives.
     Ending(InteractiveResizeData),
 }
+
+/// How round the corners of a macOS window are taken to be, in points, unless a window rule
+/// sets `geometry-corner-radius`. This is the radius of a plain titled window; windows with
+/// a toolbar are rounder.
+pub const DEFAULT_CORNER_RADIUS: f32 = 16.;
 
 fn size_of(frame: Rect) -> Size<i32, Logical> {
     Size::from((frame.w.round() as i32, frame.h.round() as i32))
@@ -338,6 +344,15 @@ impl LayoutElement for Window {
 
     fn max_size(&self) -> Size<i32, Logical> {
         self.rules.apply_max_size(self.inner.max_size.get())
+    }
+
+    fn geometry_corner_radius(&self) -> CornerRadius {
+        // niri cannot know how round a window's corners are, and takes them to be square
+        // unless a `geometry-corner-radius` window rule says otherwise. On macOS every
+        // ordinary window has round corners, so that is the assumption here.
+        self.rules
+            .geometry_corner_radius
+            .unwrap_or(CornerRadius::from(DEFAULT_CORNER_RADIUS))
     }
 
     fn is_wl_surface(&self, wl_surface: &WlSurface) -> bool {

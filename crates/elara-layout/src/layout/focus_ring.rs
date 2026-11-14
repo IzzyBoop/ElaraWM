@@ -5,7 +5,7 @@ use smithay::backend::renderer::element::{Element as _, Kind};
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use crate::niri_render_elements;
-use crate::render_helpers::border::BorderRenderElement;
+use crate::render_helpers::border::{BorderRenderElement, Parameters};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 
@@ -256,6 +256,25 @@ impl FocusRing {
                 location + self.locations[0],
             );
         }
+    }
+
+    // ELARA: niri hands the ring to its renderer as up to eight elements. ElaraWM draws it
+    // in a window of its own, as one shape, so it asks for the ring as a whole.
+    /// Returns the rectangle the ring covers, relative to the location `render()` is given,
+    /// and the parameters it is drawn with. `None` where `render()` would draw nothing.
+    pub fn outline(&self) -> Option<(Rectangle<f64, Logical>, &Parameters)> {
+        if self.config.off {
+            return None;
+        }
+
+        let width = self.config.width;
+        if self.is_border && width == 0. {
+            return None;
+        }
+
+        let full_rect = Rectangle::new(Point::from((-width, -width)), self.full_size);
+        // Every element carries the parameters of the whole ring.
+        Some((full_rect, self.borders[0].parameters()))
     }
 
     pub fn width(&self) -> f64 {

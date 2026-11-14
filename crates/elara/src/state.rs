@@ -5,17 +5,18 @@ use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
 use elara_layout::layout::{ActivateWindow, AddWindowTarget, Layout, LayoutElement as _};
+use elara_layout::render_helpers::border::Parameters;
 use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    DisplayId, DisplayInfo, Event, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+    DisplayId, DisplayInfo, Event, Outline, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
 };
 use niri_config::{Config, OutputName};
 use niri_ipc::PositionChange;
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
-use smithay::utils::{Point, Rectangle, Size, Transform};
+use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
 
 use crate::pointer::PointerGrab;
 use crate::window::Window;
@@ -750,6 +751,11 @@ impl<B: WindowBackend> State<B> {
             }
         }
 
+        // Draw what niri would draw around the windows, now that they are where they belong.
+        self.layout.update_render_elements(None);
+        let outlines = self.outlines();
+        self.backend.set_outlines(&outlines);
+
         self.sync_focus();
 
         if let Some(focused) = self.layout.focus().map(|window| window.window_id()) {
@@ -907,8 +913,10 @@ impl<B: WindowBackend> State<B> {
 
             // A window being dragged with the mouse belongs to no workspace until it is
             // dropped. niri draws it under the pointer; here the real window goes there.
-            if let Some((window, output, loc)) = self.layout.interactive_moved_window_location() {
+            if let Some((tile, output, tile_pos)) = self.layout.interactive_moved_tile() {
                 if output == mon.output() {
+                    let window = tile.window();
+                    let loc = tile_pos + tile.window_loc();
                     let size = window.target_size();
                     placed.push(window.window_id());
                     targets.push(Target {
@@ -942,6 +950,83 @@ impl<B: WindowBackend> State<B> {
         }
 
         targets
+    }
+
+    /// Returns what niri draws around and between windows: borders, the focus ring, and the
+    /// hint that shows where a window being dragged would land. Later entries go on top.
+    ///
+    /// niri draws these under the windows, as part of the same picture. Here they go in a
+    /// window of ElaraWM's own, on top of everything. That works because they lie outside the
+    /// windows they belong to, in the gaps the layout leaves.
+    fn outlines(&self) -> Vec<Outline> {
+        let mut scrolling = Vec::new();
+        let mut hints = Vec::new();
+        let mut floating = Vec::new();
+        let mut moved = Vec::new();
+
+        for mon in self.layout.monitors() {
+            let Some(display) = self.display_for_output(mon.output()) else {
+                continue;
+            };
+            let origin = display.info.frame.origin();
+
+            for (ws, ws_geo) in mon.workspaces_with_render_geo() {
+                // As in niri, the focus ring goes around the active window of each workspace
+                // that is showing, in the active or the inactive color.
+                let active = ws.active_window().map(|window| window.window_id());
+
+                for (tile, tile_pos, visible) in ws.tiles_with_render_positions() {
+                    if !visible {
+                        continue;
+                    }
+                    let window = tile.window();
+                    let window_loc = tile.window_loc();
+                    let loc = ws_geo.loc + tile_pos + window_loc;
+                    let expected = (origin.x + loc.x.round(), origin.y + loc.y.round());
+
+                    // Only around a window that is where the layout has it. One that is kept
+                    // out of sight, or that macOS would not let go where it was sent, has
+                    // nothing drawn where it is not.
+                    let frame = window.frame();
+                    if (frame.x, frame.y) != expected {
+                        continue;
+                    }
+
+                    let tile_origin = (frame.x - window_loc.x, frame.y - window_loc.y);
+                    let is_active = active == Some(window.window_id());
+                    let list = if window.is_floating() {
+                        &mut floating
+                    } else {
+                        &mut scrolling
+                    };
+                    for (rect, width, parameters) in tile.outlines(is_active).into_iter().flatten()
+                    {
+                        list.push(outline(rect, width, parameters, tile_origin));
+                    }
+                }
+            }
+
+            if let Some((rect, parameters)) = mon.insert_hint_outline() {
+                hints.push(outline(rect, 0., parameters, (origin.x, origin.y)));
+            }
+
+            if let Some((tile, output, tile_pos)) = self.layout.interactive_moved_tile() {
+                if output == mon.output() {
+                    let tile_origin =
+                        (origin.x + tile_pos.x.round(), origin.y + tile_pos.y.round());
+                    for (rect, width, parameters) in tile.outlines(true).into_iter().flatten() {
+                        moved.push(outline(rect, width, parameters, tile_origin));
+                    }
+                }
+            }
+        }
+
+        // niri's order, bottom to top: tiled windows, the hint, floating windows, and the
+        // window being dragged.
+        scrolling.extend(hints);
+        scrolling.extend(floating);
+        scrolling.extend(moved);
+        scrolling
     }
 
     fn other_displays<'a>(
@@ -1022,6 +1107,8 @@ impl<B: WindowBackend> State<B> {
     /// A window whose original place is no longer on any display, such as one that was on a
     /// display since unplugged, is put on the display it is on now.
     pub fn release_windows(&mut self) {
+        self.backend.set_outlines(&[]);
+
         let mut offset = 0.;
         let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();
         ids.sort();
@@ -1067,6 +1154,36 @@ impl<B: WindowBackend> State<B> {
                 debug!(?id, %err, "could not give window its original frame back");
             }
         }
+    }
+}
+
+/// Turns one of niri's border elements into a shape to draw. `rect` is relative to `origin`,
+/// which is in global coordinates.
+fn outline(
+    rect: Rectangle<f64, Logical>,
+    line_width: f64,
+    parameters: &Parameters,
+    origin: (f64, f64),
+) -> Outline {
+    // A gradient is drawn in its first color.
+    let color = parameters.color_from;
+    let radius = parameters.corner_radius;
+    Outline {
+        rect: Rect::new(
+            origin.0 + rect.loc.x,
+            origin.1 + rect.loc.y,
+            rect.size.w,
+            rect.size.h,
+        ),
+        line_width,
+        corner_radius: [
+            radius.top_left,
+            radius.top_right,
+            radius.bottom_right,
+            radius.bottom_left,
+        ]
+        .map(f64::from),
+        color: [color.r, color.g, color.b, color.a * parameters.alpha],
     }
 }
 

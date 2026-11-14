@@ -28,8 +28,11 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
+use super::overlay::Overlay;
 use super::{accessibility_trusted, ax, display};
-use crate::{DisplayInfo, Error, Event, Rect, WindowBackend, WindowId, WindowInfo, WindowKind};
+use crate::{
+    DisplayInfo, Error, Event, Outline, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+};
 
 /// How long to wait for an application to answer one Accessibility request.
 ///
@@ -148,6 +151,10 @@ pub struct MacBackend {
     events: Vec<Event>,
     next_id: u64,
     workspace_observers: Vec<ObserverToken>,
+    /// Made when there is first something to draw.
+    overlay: Option<Overlay>,
+    /// The outlines last asked for, to tell when nothing changed.
+    outlines: Vec<Outline>,
 }
 
 impl MacBackend {
@@ -173,6 +180,8 @@ impl MacBackend {
             events: Vec::new(),
             next_id: 0,
             workspace_observers: Vec::new(),
+            overlay: None,
+            outlines: Vec::new(),
         };
 
         backend.observe_workspace();
@@ -632,6 +641,18 @@ impl WindowBackend for MacBackend {
             code: AXError::AttributeUnsupported.0,
         })?;
         ax::perform(&button, ax::ACTION_PRESS).map_err(|err| Self::error(id, err))
+    }
+
+    fn set_outlines(&mut self, outlines: &[Outline]) {
+        // This is called on every pass; most of them change nothing.
+        if self.outlines == outlines && (self.overlay.is_some() || outlines.is_empty()) {
+            return;
+        }
+        self.outlines = outlines.to_vec();
+        let displays = display::displays(self.mtm);
+        self.overlay
+            .get_or_insert_with(Overlay::new)
+            .set(&displays, outlines);
     }
 
     fn drain_events(&mut self) -> Vec<Event> {
