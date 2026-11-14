@@ -232,10 +232,11 @@ fn run(config: Config, config_path: Option<PathBuf>) -> ExitCode {
                     response.swallow
                 }
                 InputEvent::Mouse(event) => {
-                    let response =
-                        pointer_handler.handle(state.config(), event, |button, position| {
-                            state.can_grab(button, position)
-                        });
+                    let response = pointer_handler.handle(
+                        state.config(),
+                        event,
+                        |button, position, mod_down| state.takes_press(button, position, mod_down),
+                    );
                     inputs
                         .borrow_mut()
                         .extend(response.inputs.into_iter().map(Input::Pointer));

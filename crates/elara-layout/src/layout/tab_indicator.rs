@@ -8,7 +8,7 @@ use super::tile::Tile;
 use super::LayoutElement;
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
-use crate::render_helpers::border::BorderRenderElement;
+use crate::render_helpers::border::{BorderRenderElement, Parameters};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::utils::{
     floor_logical_in_physical_max1, round_logical_in_physical, round_logical_in_physical_max1,
@@ -267,6 +267,16 @@ impl TabIndicator {
                 1.,
             );
         }
+    }
+
+    // ELARA: see `FocusRing::outline()`.
+    /// Returns the rectangle of each tab, relative to the position `render()` is given, and
+    /// the parameters it is drawn with. Empty where `render()` would draw nothing.
+    pub fn outlines(&self) -> impl Iterator<Item = (Rectangle<f64, Logical>, &Parameters)> + '_ {
+        zip(&self.shaders, &self.shader_locs).map(|(shader, loc)| {
+            let parameters = shader.parameters();
+            (Rectangle::new(*loc, parameters.size), parameters)
+        })
     }
 
     pub fn hit(

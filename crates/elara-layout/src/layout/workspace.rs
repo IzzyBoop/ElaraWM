@@ -27,6 +27,7 @@ use super::{
 };
 use crate::animation::Clock;
 use crate::niri_render_elements;
+use crate::render_helpers::border::Parameters;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -1585,6 +1586,13 @@ impl<W: LayoutElement> Workspace<W> {
         } else {
             self.scrolling.popup_target_rect(window)
         }
+    }
+
+    // ELARA: see `ScrollingSpace::tab_indicator_outlines()`.
+    pub fn tab_indicator_outlines(
+        &self,
+    ) -> impl Iterator<Item = (Rectangle<f64, Logical>, &Parameters)> + '_ {
+        self.scrolling.tab_indicator_outlines()
     }
 
     pub fn render_scrolling<R: NiriRenderer>(
