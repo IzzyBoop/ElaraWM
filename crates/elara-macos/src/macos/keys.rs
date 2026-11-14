@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 use objc2_core_foundation::{
-    kCFRunLoopDefaultMode, CFMachPort, CFRetained, CFRunLoop, CFRunLoopSource,
+    kCFRunLoopDefaultMode, CFData, CFMachPort, CFRetained, CFRunLoop, CFRunLoopSource, CFType,
 };
 use objc2_core_graphics::{
     CGEvent, CGEventField, CGEventFlags, CGEventMask, CGEventTapLocation, CGEventTapOptions,
@@ -27,31 +27,88 @@ struct Context {
     port: Option<CFRetained<CFMachPort>>,
 }
 
-/// Returns the character a key produces on the current keyboard layout with no modifiers held.
-fn unmodified_character(keycode: u16) -> Option<char> {
-    // Asking the system what a synthetic, modifier-free press of this key would type goes
-    // through the current input source without needing the Carbon text input APIs.
-    let event = CGEvent::new_keyboard_event(None, keycode, true)?;
-    CGEvent::set_flags(Some(&event), CGEventFlags(0));
+// The keyboard layout services live in Carbon's HIToolbox and have no Rust bindings.
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    /// Returns the current keyboard layout, retained. Null if there is none.
+    fn TISCopyCurrentKeyboardLayoutInputSource() -> *mut c_void;
+    /// Returns a property of an input source, not retained. Null if it has no such property.
+    fn TISGetInputSourceProperty(source: *mut c_void, key: *const c_void) -> *mut c_void;
+    /// Property key for the layout's `UCKeyboardLayout` data, as a `CFData`.
+    static kTISPropertyUnicodeKeyLayoutData: *const c_void;
+    /// Returns the physical keyboard type, which selects a table within the layout.
+    fn LMGetKbdType() -> u8;
+    fn UCKeyTranslate(
+        key_layout: *const c_void,
+        virtual_key_code: u16,
+        key_action: u16,
+        modifier_key_state: u32,
+        keyboard_type: u32,
+        key_translate_options: u32,
+        dead_key_state: *mut u32,
+        max_string_length: usize,
+        actual_string_length: *mut usize,
+        unicode_string: *mut u16,
+    ) -> i32;
+}
 
+/// `kUCKeyActionDisplay`: translate for showing the key's label, not for typing.
+const KEY_ACTION_DISPLAY: u16 = 3;
+/// `kUCKeyTranslateNoDeadKeysMask`: report a dead key as its own character.
+const TRANSLATE_NO_DEAD_KEYS: u32 = 1;
+
+/// Returns the character a key produces on the current keyboard layout with no modifiers held.
+///
+/// The modifier state is passed to the layout explicitly as "none". Asking through a synthetic
+/// key event instead is not reliable: the answer follows the modifiers physically held, so
+/// with Option down the F key reports as "ƒ" and no bind on Option+F can ever match.
+fn unmodified_character(keycode: u16) -> Option<char> {
     let mut buffer = [0u16; 4];
-    let mut length = 0;
-    // SAFETY: `buffer` has room for the four UTF-16 units asked for, and `length` is a valid
-    // place for the count.
-    unsafe {
-        CGEvent::keyboard_get_unicode_string(
-            Some(&event),
-            buffer.len() as _,
+    let mut length = 0usize;
+    let mut dead_key_state = 0u32;
+
+    // SAFETY: the input source is checked for null and released below. The layout data
+    // belongs to it and is only used while it is alive. `buffer`, `length` and
+    // `dead_key_state` are valid for the sizes passed.
+    let status = unsafe {
+        let source = TISCopyCurrentKeyboardLayoutInputSource();
+        let source_ref = NonNull::new(source.cast::<CFType>())?;
+        let source = CFRetained::<CFType>::from_raw(source_ref);
+        let source_ptr = CFRetained::as_ptr(&source).as_ptr().cast::<c_void>();
+
+        let data = TISGetInputSourceProperty(source_ptr, kTISPropertyUnicodeKeyLayoutData);
+        // Input methods such as those for Chinese or Japanese have no key layout of their own.
+        let data = NonNull::new(data.cast::<CFData>())?;
+        let layout = data.as_ref().byte_ptr();
+
+        UCKeyTranslate(
+            layout.cast::<c_void>(),
+            keycode,
+            KEY_ACTION_DISPLAY,
+            0,
+            u32::from(LMGetKbdType()),
+            TRANSLATE_NO_DEAD_KEYS,
+            &mut dead_key_state,
+            buffer.len(),
             &mut length,
             buffer.as_mut_ptr(),
-        );
+        )
+    };
+    if status != 0 {
+        return None;
     }
 
-    let units = &buffer[..(length as usize).min(buffer.len())];
+    let units = &buffer[..length.min(buffer.len())];
     char::decode_utf16(units.iter().copied())
         .next()?
         .ok()
         .filter(|c| !c.is_control())
+}
+
+/// Returns what a key types on the current layout with no modifiers. For checking the layout
+/// lookup from outside the tap.
+pub fn character_for_keycode(keycode: u16) -> Option<char> {
+    unmodified_character(keycode)
 }
 
 unsafe extern "C-unwind" fn tap_callback(
