@@ -11,6 +11,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 elara-layout = { version = "0.1.0", path = "../elara-layout" }
 elara-macos = { version = "0.1.0", path = "../elara-macos" }
+libc = "0.2.191"
 niri-config = { version = "26.4.0", path = "../niri-config" }
 niri-ipc = { version = "26.4.0", path = "../niri-ipc" }
 signal-hook = "0.3.18"

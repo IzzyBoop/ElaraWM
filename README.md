@@ -44,6 +44,38 @@ terminal you use). On first start macOS offers to open the right pane of System 
 
 Stop it with Ctrl-C. Windows that were scrolled out of view are brought back on screen.
 
+While it runs, ElaraWM has an item in the menu bar: its mark and the name or number of the
+workspace that is showing. Its menu opens the config file, shows the log, switches starting at
+login on or off, and quits.
+
+### As an application
+
+```sh
+tools/bundle-app.sh                 # writes target/release/ElaraWM.app
+tools/bundle-app.sh /Applications   # or puts it somewhere else
+```
+
+Started this way, ElaraWM has no Dock icon and no window, only the menu bar item. The
+Accessibility permission is then its own: on first start macOS offers to open System Settings,
+and ElaraWM waits in the menu bar until the permission is granted. Its log is written to
+`~/Library/Logs/ElaraWM/elara.log`; the log of the run before is kept as `elara.log.1`.
+
+"Start at Login" in the menu needs the application: it is greyed out for `cargo run`.
+
+The script signs the application ad hoc, since that needs no certificate. macOS then takes
+every build for a different application, so **the Accessibility permission has to be granted
+again after each rebuild** (remove the old ElaraWM entry from the list first). To keep the
+permission across builds, sign with a certificate, which can be a self-signed one made in
+Keychain Access (Certificate Assistant > Create a Certificate, type "Code Signing"):
+
+```sh
+ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
+```
+
+The icon is built from `resources/icons/MacOS Icons/Elara Exports/Elara-iOS-Default-1024@1x.png`.
+The layered `Elara.icon` beside it is the source for that export; compiling it into the
+application needs Xcode, which the script does not require.
+
 ## Configuration
 
 ElaraWM reads `~/.config/elara/config.kdl`, in
