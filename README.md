@@ -30,59 +30,47 @@ System Integrity Protection stays on and no private APIs are used.
 - [Quirks and known issues](#quirks-and-known-issues)
 - [Troubleshooting](#troubleshooting)
 - [Not there yet](#not-there-yet)
-- [Building and developing](#building-and-developing)
+- [Building from source](#building-from-source)
 - [License](#license)
 
 ## Requirements
 
-- macOS 27. That is what ElaraWM is developed and tested on. The application bundle declares
-  macOS 14 as its minimum, but nothing older than 27 has been tried.
-- [rustup](https://rustup.rs) to build it. The compiler version is pinned in
-  `rust-toolchain.toml` and rustup fetches it by itself. There are no prebuilt downloads.
-- Xcode is optional. With it the application gets its layered icon, with dark, tinted and
-  clear appearances; without it, a flat one.
+- macOS 27 on a Mac with Apple silicon. That is what ElaraWM is developed and tested on,
+  and the download is built for Apple silicon only.
+- Nothing else. Building from source is optional and is described
+  [further down](#building-from-source).
 
 ## Installing and starting
 
-There are two ways to run ElaraWM. Both are the same program.
+1. Download `ElaraWM.app` from the Releases page of this repository and unzip it.
+2. Move it to your Applications folder. Do this before opening it: macOS runs a downloaded
+   application from a temporary place until it has been moved, and permissions and "Start
+   at Login" do not stick there.
+3. Open it. The first time, macOS refuses, because ElaraWM is not notarized by Apple. Open
+   System Settings > Privacy & Security, scroll down to the message about ElaraWM and
+   choose "Open Anyway". This is needed once.
+4. macOS then offers to open System Settings for the Accessibility permission. Switch
+   ElaraWM on there. It waits in the menu bar until you do, and starts arranging your
+   windows as soon as you have.
 
-### As an application (recommended)
+ElaraWM has no Dock icon and no window, only an item in the menu bar. "Start at Login" in
+its menu has it start with your Mac. Its log goes to `~/Library/Logs/ElaraWM/elara.log`;
+the log of the run before is kept as `elara.log.1`.
 
-```sh
-tools/bundle-app.sh                 # writes target/release/ElaraWM.app
-tools/bundle-app.sh /Applications   # or puts it somewhere else
-```
+The first time you open the overview (`Mod+O`), macOS asks for a second permission, Screen
+Recording. See [Permissions](#permissions) for what it is for and how to do without it.
 
-Open `ElaraWM.app`. It has no Dock icon and no window, only an item in the menu bar. On
-first start macOS offers to open System Settings for the Accessibility permission, and
-ElaraWM waits in the menu bar until it is granted. Its log goes to
-`~/Library/Logs/ElaraWM/elara.log`; the log of the run before is kept as `elara.log.1`.
+### Updating
 
-**Sign it with a certificate of your own, or you will grant the permission again after
-every rebuild.** macOS ties permissions to the application's signature. The script signs
-with a certificate named "ElaraWM Signing" if your keychain has one, and the permissions
-then carry over from build to build. Without it the script signs ad hoc, macOS takes every
-build for a different application, and the old entries pile up in System Settings.
+Quit ElaraWM, replace the application in your Applications folder with the new one, and
+open it. Your config is kept. If nothing is tiled after an update, macOS has taken the new
+version for a different application: see [Troubleshooting](#troubleshooting).
 
-To make the certificate: open Keychain Access, choose Certificate Assistant > Create a
-Certificate, and give it the name "ElaraWM Signing", identity type "Self-Signed Root" and
-certificate type "Code Signing". It only means something on your own machine. To sign with
-a different identity:
+### Uninstalling
 
-```sh
-ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
-```
-
-### From a terminal
-
-```sh
-cargo run -p elara
-```
-
-Run this way, the permissions belong to the terminal (or the editor whose terminal you
-use), not to ElaraWM. The log is printed to the terminal; set `RUST_LOG=elara=debug` for
-more of it. `elara --config <path>` reads a config from somewhere else. "Start at Login"
-in the menu is greyed out, since there is no application to start.
+Quit ElaraWM, which puts your windows back, and move the application to the Trash. Its
+config is in `~/.config/elara` and its log in `~/Library/Logs/ElaraWM`. Remove its entries
+under Accessibility and Screen Recording in System Settings > Privacy & Security.
 
 ### Stopping
 
@@ -91,7 +79,7 @@ Any of these stops ElaraWM and puts every window back where it was before ElaraW
 - `Mod+Shift+E`, the default `quit` bind. It quits at once; niri's confirmation dialog is
   not shown.
 - "Quit ElaraWM" in the menu bar item.
-- Ctrl-C in the terminal, or `pkill -INT -x elara` from anywhere.
+- `pkill -INT -x elara` in a terminal, or Ctrl-C if you started it from one.
 
 Do not force-quit it or use `kill -9`. See [Troubleshooting](#troubleshooting) if you did.
 
@@ -207,8 +195,8 @@ be copied over as it is: what does not apply on macOS is skipped, not rejected.
 - **`Mod`** is Option. Set `mod-key` in the `input` section to change it. In binds, `Super`
   is Command and `Alt` is Option.
 - **`app-id`** in window rules is matched against the application's bundle identifier, such
-  as `com.apple.Terminal` or `com.apple.Safari`. The probe (see
-  [Troubleshooting](#troubleshooting)) lists the identifiers of the windows you have open.
+  as `com.apple.Terminal` or `com.apple.Safari`. To find an application's identifier, run
+  `osascript -e 'id of app "Safari"'` in a terminal with its name.
 - **Output names** are display names, such as `"Built-in Retina Display"`.
 - **Mouse buttons** can be bound like keys: `MouseLeft`, `MouseRight`, `MouseMiddle`,
   `MouseBack` and `MouseForward`, as in `Mod+MouseMiddle { close-window; }`.
@@ -336,12 +324,18 @@ all of it off.
 
 ## Troubleshooting
 
+**macOS will not open it.** A downloaded ElaraWM is not notarized by Apple. Open System
+Settings > Privacy & Security, scroll down to the message about ElaraWM and choose "Open
+Anyway". If there is no such message, this does the same in a terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/ElaraWM.app
+```
+
 **Nothing is tiled after starting.** The Accessibility permission is missing. Look for
-ElaraWM (or, for `cargo run`, your terminal) in System Settings > Privacy & Security >
-Accessibility and switch it on. If it is listed and on but nothing happens, the entry
-belongs to an older build: remove it with the minus button, start ElaraWM and grant it
-again. Signing with your own certificate, as described under
-[Installing and starting](#installing-and-starting), stops this from recurring.
+ElaraWM in System Settings > Privacy & Security > Accessibility and switch it on. If it is
+listed and on but nothing happens, the entry belongs to an older version: remove it with
+the minus button, start ElaraWM and grant it again. The same goes for Screen Recording.
 
 **The overview shows cards, not pictures.** Screen Recording is missing, or was granted
 while ElaraWM was running. Grant it, then quit and start ElaraWM.
@@ -350,31 +344,74 @@ while ElaraWM was running. Grant it, then quit and start ElaraWM.
 back. Start it again and quit it the ordinary way; that brings every window back on
 screen.
 
-**A key does nothing, or does the wrong thing.** Look at the log ("Show Log" in the menu,
-or the terminal). A bind for an action that is not supported is named there, and so is a
+**A key does nothing, or does the wrong thing.** Look at the log ("Show Log" in the menu). A bind for an action that is not supported is named there, and so is a
 config that failed to load, in which case the config from before is still in use.
 
-**See what ElaraWM sees, without it managing anything:**
+**See what ElaraWM sees, without it managing anything.** This needs the source and
+rustup (see [Building from source](#building-from-source)):
 
 ```sh
 cargo run -p elara-macos --example probe
 ```
 
-This prints whether the permission is granted, the displays, and every window with its
+It prints whether the permission is granted, the displays, and every window with its
 application's bundle identifier, which is what `app-id` in window rules matches.
 
-**Reporting a problem.** Run with `RUST_LOG=elara=debug`, reproduce it, and include the
-log, the macOS version and the application whose window misbehaved.
+**Reporting a problem.** Include the log ("Show Log" in the menu), the macOS version and
+the application whose window misbehaved.
 
 ## Not there yet
 
 - `elara msg` and the IPC socket, niri's way of scripting the window manager.
-- Prebuilt downloads. It has to be built from source.
+- Notarization, so that macOS opens a downloaded ElaraWM without being told to.
+- A build for Intel Macs.
 - Proper testing on more than one display.
 
 Not planned, since macOS has its own: screenshots and window shadows.
 
-## Building and developing
+## Building from source
+
+You only need this to change ElaraWM or to run a version that has not been released.
+It takes [rustup](https://rustup.rs); the compiler version is pinned in
+`rust-toolchain.toml` and rustup fetches it by itself.
+
+### The application
+
+```sh
+tools/bundle-app.sh                 # writes target/release/ElaraWM.app
+tools/bundle-app.sh /Applications   # or puts it somewhere else
+```
+
+With Xcode installed the application gets its layered icon, with dark, tinted and clear
+appearances; without it, a flat one.
+
+**Sign it with a certificate of your own, or you will grant the permissions again after
+every rebuild.** macOS ties permissions to the application's signature. The script signs
+with a certificate named "ElaraWM Signing" if your keychain has one, and the permissions
+then carry over from build to build. Without it the script signs ad hoc, macOS takes every
+build for a different application, and the old entries pile up in System Settings.
+
+To make the certificate: open Keychain Access, choose Certificate Assistant > Create a
+Certificate, and give it the name "ElaraWM Signing", identity type "Self-Signed Root" and
+certificate type "Code Signing". It only means something on your own machine. To sign with
+a different identity:
+
+```sh
+ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
+```
+
+### From a terminal
+
+```sh
+cargo run -p elara
+```
+
+Run this way, the permissions belong to the terminal (or the editor whose terminal you
+use), not to ElaraWM. The log is printed to the terminal; set `RUST_LOG=elara=debug` for
+more of it. `elara --config <path>` reads a config from somewhere else. "Start at Login"
+in the menu is greyed out, since there is no application to start. Stop it with Ctrl-C.
+
+### Developing
 
 ```sh
 cargo build
