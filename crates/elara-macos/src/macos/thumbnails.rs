@@ -82,11 +82,18 @@ impl Shared {
         }
         // Not below zero: answers to a request that was given up on can still come in after
         // the count has been started over.
-        let _ = self
-            .pending
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |pending| {
-                Some(pending.saturating_sub(1))
-            });
+        let mut pending = self.pending.load(Ordering::SeqCst);
+        while pending > 0 {
+            match self.pending.compare_exchange_weak(
+                pending,
+                pending - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(now) => pending = now,
+            }
+        }
         if let Some(run_loop) = CFRunLoop::main() {
             run_loop.wake_up();
         }
