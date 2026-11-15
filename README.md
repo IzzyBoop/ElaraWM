@@ -42,7 +42,8 @@ System Integrity Protection stays on and no private APIs are used.
 
 ## Installing and starting
 
-1. Download `ElaraWM.app` from the Releases page of this repository and unzip it.
+1. Download `ElaraWM.app` from the [Releases page](https://github.com/IzzyBoop/ElaraWM/releases)
+   and unzip it.
 2. Move it to your Applications folder. Do this before opening it: macOS runs a downloaded
    application from a temporary place until it has been moved, and permissions and "Start
    at Login" do not stick there.
