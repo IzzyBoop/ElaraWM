@@ -17,7 +17,7 @@ use elara_macos::{
     WindowId, WindowInfo, WindowKind,
 };
 use niri_config::{Config, OutputName};
-use niri_ipc::PositionChange;
+use niri_ipc::{PositionChange, SizeChange};
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
@@ -660,17 +660,33 @@ impl<B: WindowBackend> State<B> {
         if self.system_press {
             self.user_dragged.insert(id);
         }
+        let before = window.frame();
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
         if size_changed && is_floating {
             window.accept_current_size();
         }
+        // A tiled window that changes size while the button is down is being resized by one
+        // of its edges, which the system does on its own. That is the user asking for the
+        // size, as with niri's own resize by dragging, and the layout is told: the column
+        // takes the width and the window the height. On Wayland a window asks the compositor
+        // to start such a resize, and niri does; here it has started already.
+        if size_changed && !is_floating && self.system_press {
+            if frame.w != before.w {
+                let width = SizeChange::SetFixed(frame.w.round() as i32);
+                self.layout.set_window_width(Some(&id), width);
+            }
+            if frame.h != before.h {
+                let height = SizeChange::SetFixed(frame.h.round() as i32);
+                self.layout.set_window_height(Some(&id), height);
+            }
+        }
         if size_changed {
             self.layout.update_window(&id, None);
         }
 
-        // A tiled window that was dragged away is put back by the next `apply()`. A floating
-        // window stays where the user dropped it.
+        // A tiled window that was dragged away is put back by `apply()`, once the button is
+        // up. A floating window stays where the user dropped it.
         if is_floating {
             let output = self
                 .layout
@@ -709,7 +725,8 @@ impl<B: WindowBackend> State<B> {
     /// While it is down the system may be dragging a window, by its title bar or an edge.
     /// The system moves the window with the pointer and reports where it is afterwards, a
     /// few times a second, so anything drawn around it would trail behind. Nothing is drawn
-    /// around such a window until the button is released.
+    /// around such a window until the button is released, and it is not put back in its
+    /// place until then either. A tiled window resized like that keeps its new size.
     pub fn system_press(&mut self, down: bool) {
         self.system_press = down;
         self.user_dragged.clear();
@@ -746,6 +763,11 @@ impl<B: WindowBackend> State<B> {
                 let Some(window) = self.windows.get(&target.id) else {
                     continue;
                 };
+                // A window the user has hold of is the system's to move until they let go.
+                // Placing it now would pull it out from under the pointer.
+                if self.user_dragged.contains(&target.id) {
+                    continue;
+                }
                 // macOS cuts a resize short at the edges of the display, so a window can only
                 // be given a size from a position where that size fits. niri's layout asks for
                 // the size first and moves the window once it has it: a column in the right
