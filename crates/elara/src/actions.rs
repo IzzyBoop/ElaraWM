@@ -13,6 +13,7 @@ use elara_layout::layout::{ActivateWindow, LayoutElement as _};
 use elara_macos::{WindowBackend, WindowId};
 use niri_config::{Action, OutputName, WorkspaceReference};
 use smithay::output::Output;
+use smithay::utils::Logical;
 
 use crate::state::State;
 
@@ -495,8 +496,52 @@ impl<B: WindowBackend> State<B> {
                 self.layout.move_floating_window(id.as_ref(), x, y, true);
             }
 
+            Action::ToggleOverview => self.layout.toggle_overview(),
+            Action::OpenOverview => {
+                self.layout.open_overview();
+            }
+            Action::CloseOverview => {
+                self.layout.close_overview();
+            }
+
+            // What scrolling does in the overview. They go by where the pointer is, which is
+            // known when they come from a scroll on the overview. Bound to a key, they act
+            // on the focused display and workspace.
+            Action::FocusWorkspaceDownUnderMouse => match self.output_under_pointer() {
+                Some((output, _)) => {
+                    if let Some(mon) = self.layout.monitor_for_output_mut(&output) {
+                        mon.switch_workspace_down();
+                    }
+                }
+                None => self.layout.switch_workspace_down(),
+            },
+            Action::FocusWorkspaceUpUnderMouse => match self.output_under_pointer() {
+                Some((output, _)) => {
+                    if let Some(mon) = self.layout.monitor_for_output_mut(&output) {
+                        mon.switch_workspace_up();
+                    }
+                }
+                None => self.layout.switch_workspace_up(),
+            },
+            Action::FocusColumnLeftUnderMouse => match self.workspace_under_pointer() {
+                Some(id) => {
+                    if let Some(ws) = self.layout.workspaces_mut().find(|ws| ws.id() == id) {
+                        ws.focus_left();
+                    }
+                }
+                None => self.layout.focus_left(),
+            },
+            Action::FocusColumnRightUnderMouse => match self.workspace_under_pointer() {
+                Some(id) => {
+                    if let Some(ws) = self.layout.workspaces_mut().find(|ws| ws.id() == id) {
+                        ws.focus_right();
+                    }
+                }
+                None => self.layout.focus_right(),
+            },
+
             // Everything else drives a part of niri that has no macOS counterpart yet: the
-            // screenshot UI, the overview, screencasts, the recent-windows switcher, keyboard
+            // screenshot UI, screencasts, the recent-windows switcher, keyboard
             // layouts, virtual terminals and monitor power.
             other => {
                 warn!("action not supported on macOS yet: {other:?}");
@@ -504,6 +549,20 @@ impl<B: WindowBackend> State<B> {
             }
         }
         true
+    }
+
+    /// The display the pointer is over and the point within it, if this is known.
+    fn output_under_pointer(&self) -> Option<(Output, smithay::utils::Point<f64, Logical>)> {
+        self.output_under(self.pointer_position?)
+    }
+
+    /// The workspace the pointer is over or beside, if this is known.
+    fn workspace_under_pointer(&self) -> Option<WorkspaceId> {
+        let (output, pos_within_output) = self.output_under_pointer()?;
+        let ws = self
+            .layout
+            .workspace_under(true, &output, pos_within_output)?;
+        Some(ws.id())
     }
 
     fn focused_id(&self) -> Option<WindowId> {

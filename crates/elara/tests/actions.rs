@@ -363,8 +363,8 @@ fn unsupported_actions_change_nothing() {
     let (mut state, a, b) = two_columns();
     state.backend_mut().take_frame_requests();
 
-    state.do_action(Action::ToggleOverview);
     state.do_action(Action::ShowHotkeyOverlay);
+    state.do_action(Action::ToggleKeyboardShortcutsInhibit);
 
     assert!(state.backend_mut().take_frame_requests().is_empty());
     assert_eq!(frame(&state, a), column(0));

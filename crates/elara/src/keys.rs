@@ -117,6 +117,23 @@ pub fn modifiers(held: KeyModifiers) -> Modifiers {
     modifiers
 }
 
+/// The keys niri has built in for the overview, with the action and whether holding the key
+/// repeats it.
+fn hardcoded_overview_bind(keysym: Keysym, held: Modifiers) -> Option<(Action, bool)> {
+    if !held.is_empty() {
+        return None;
+    }
+    let bind = match keysym {
+        Keysym::Escape | Keysym::Return => (Action::ToggleOverview, false),
+        Keysym::Left => (Action::FocusColumnLeft, true),
+        Keysym::Right => (Action::FocusColumnRight, true),
+        Keysym::Up => (Action::FocusWindowOrWorkspaceUp, true),
+        Keysym::Down => (Action::FocusWindowOrWorkspaceDown, true),
+        _ => return None,
+    };
+    Some(bind)
+}
+
 /// What to do with a key event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyResponse {
@@ -155,6 +172,20 @@ impl KeyHandler {
     /// the press, any repeats while it is held, and the release. Holding the key repeats the
     /// action only if the bind allows it.
     pub fn handle(&mut self, config: &Config, event: &KeyEvent) -> KeyResponse {
+        self.handle_with_overview(config, event, false)
+    }
+
+    /// Like [`handle()`](Self::handle), and says whether the overview is open. While it is,
+    /// niri gives the keyboard to the overview and not to any window. The binds work as
+    /// ever, Escape and Return close the overview, and the arrow keys move around in it.
+    /// Other keys go nowhere, except with Command or Control held, which is how the
+    /// system's own shortcuts are typed.
+    pub fn handle_with_overview(
+        &mut self,
+        config: &Config,
+        event: &KeyEvent,
+        overview_open: bool,
+    ) -> KeyResponse {
         if !event.pressed {
             return if self.suppressed.remove(&event.keycode) {
                 KeyResponse::SWALLOW
@@ -163,26 +194,38 @@ impl KeyHandler {
             };
         }
 
+        let held = modifiers(event.modifiers);
         let bind = keysym(event).and_then(|keysym| {
-            find_bind(config, Trigger::Keysym(keysym), modifiers(event.modifiers))
+            find_bind(config, Trigger::Keysym(keysym), held)
+                .map(|bind| (bind.action, bind.repeat))
+                // If we didn't find any bind, try other hardcoded keys.
+                .or_else(|| {
+                    overview_open
+                        .then(|| hardcoded_overview_bind(keysym, held))
+                        .flatten()
+                })
         });
-        let Some(bind) = bind else {
+        let Some((action, repeat)) = bind else {
             // If the modifiers changed while a bound key is held, its repeats no longer match
             // a bind, but the application never saw the press and should not see repeats.
-            return if event.is_repeat && self.suppressed.contains(&event.keycode) {
-                KeyResponse::SWALLOW
-            } else {
-                KeyResponse::PASS
-            };
+            if event.is_repeat && self.suppressed.contains(&event.keycode) {
+                return KeyResponse::SWALLOW;
+            }
+            let for_the_system = event.modifiers.command || event.modifiers.control;
+            if overview_open && !for_the_system {
+                self.suppressed.insert(event.keycode);
+                return KeyResponse::SWALLOW;
+            }
+            return KeyResponse::PASS;
         };
 
         self.suppressed.insert(event.keycode);
-        if event.is_repeat && !bind.repeat {
+        if event.is_repeat && !repeat {
             return KeyResponse::SWALLOW;
         }
         KeyResponse {
             swallow: true,
-            action: Some(bind.action),
+            action: Some(action),
         }
     }
 }

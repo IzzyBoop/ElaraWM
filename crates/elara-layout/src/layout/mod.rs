@@ -2325,10 +2325,12 @@ impl<W: LayoutElement> Layout<W> {
     // ELARA: niri draws the window being moved wherever the pointer is. ElaraWM has to put
     // the real window there, so it needs the position that niri only computes while rendering.
     /// Returns the tile being moved interactively, the output it is over, and the position
-    /// of the tile within that output.
+    /// of the tile within that output. In the overview the tile is drawn zoomed out, and the
+    /// position is that of the zoomed-out tile.
     pub fn interactive_moved_tile(&self) -> Option<(&Tile<W>, &Output, Point<f64, Logical>)> {
         let move_ = self.interactive_move.as_ref()?.moving()?;
-        Some((&move_.tile, &move_.output, move_.tile_render_location(1.)))
+        let zoom = self.overview_zoom();
+        Some((&move_.tile, &move_.output, move_.tile_render_location(zoom)))
     }
 
     /// Returns the window under the cursor and the hit type.

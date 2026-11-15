@@ -4,13 +4,17 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
+use elara_layout::layout::tile::Tile;
+use elara_layout::layout::workspace::Workspace;
 use elara_layout::layout::{ActivateWindow, AddWindowTarget, Layout, LayoutElement as _};
 use elara_layout::render_helpers::border::Parameters;
 use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    DisplayId, DisplayInfo, Event, Outline, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+    DisplayId, DisplayInfo, Event, Outline, Overview, OverviewDisplay, OverviewItem,
+    OverviewShadow, OverviewWindow, OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend,
+    WindowId, WindowInfo, WindowKind,
 };
 use niri_config::{Config, OutputName};
 use niri_ipc::PositionChange;
@@ -92,6 +96,9 @@ pub struct State<B: WindowBackend> {
     pub(crate) focus_history: Vec<WindowId>,
     /// Set by the `quit` action.
     pub(crate) quit_requested: bool,
+    /// Where the pointer is, while handling input that came with its position. Actions such
+    /// as `focus-workspace-down-under-mouse` go by it.
+    pub(crate) pointer_position: Option<GlobalPoint>,
     /// True until the windows that already existed at startup have been added.
     is_at_startup: bool,
 }
@@ -124,6 +131,7 @@ impl<B: WindowBackend> State<B> {
             resizing: None,
             focus_history: Vec::new(),
             quit_requested: false,
+            pointer_position: None,
             is_at_startup: true,
         };
 
@@ -179,7 +187,8 @@ impl<B: WindowBackend> State<B> {
 
     /// Lets the strip of columns and the workspaces glide into place, as they do in niri.
     ///
-    /// Only those two movements are animated. They move windows without resizing them, which
+    /// Those two movements are animated, and so is the overview zooming out and back in,
+    /// which ElaraWM draws itself. The first two move windows without resizing them, which
     /// is one request per window per frame. Windows opening, closing and resizing still take
     /// effect at once: animating a resize would mean resizing other applications' windows
     /// dozens of times a second. `animations { off }` in the config, niri's own switch, turns
@@ -216,7 +225,6 @@ impl<B: WindowBackend> State<B> {
         animations.window_close.anim.off = true;
         animations.window_movement.0.off = true;
         animations.window_resize.anim.off = true;
-        animations.overview_open_close.0.off = true;
         let off = !self.animate || animations.off;
 
         // As in niri: the global switch and the slowdown factor act on the clock.
@@ -679,6 +687,16 @@ impl<B: WindowBackend> State<B> {
             // size requests.
             self.layout.refresh(true);
 
+            // While the overview is on the move, or something is being dragged on it, the
+            // windows under it wait. Nobody can see them, and moving them takes time that
+            // the picture needs. They are put in place once things have settled, which is
+            // also before the overview is taken away: its last frame leaves it closed.
+            if self.overview_showing()
+                && (self.is_animating() || self.gesture.is_some() || self.pointer_grab.is_some())
+            {
+                break;
+            }
+
             let mut any_response = false;
             for target in self.targets() {
                 let Some(window) = self.windows.get(&target.id) else {
@@ -757,8 +775,18 @@ impl<B: WindowBackend> State<B> {
 
         // Draw what niri would draw around the windows, now that they are where they belong.
         self.layout.update_render_elements(None);
-        let outlines = self.outlines();
-        self.backend.set_outlines(&outlines);
+        match self.overview() {
+            // The overview draws its own, zoomed out with everything else.
+            Some(overview) => {
+                self.backend.set_overview(Some(&overview));
+                self.backend.set_outlines(&[]);
+            }
+            None => {
+                let outlines = self.outlines();
+                self.backend.set_outlines(&outlines);
+                self.backend.set_overview(None);
+            }
+        }
 
         self.sync_focus();
 
@@ -820,7 +848,27 @@ impl<B: WindowBackend> State<B> {
             // Check if the gesture moved far enough to decide. Threshold copied from niri.
             if x * x + y * y >= GESTURE_DECISION_DISTANCE * GESTURE_DECISION_DISTANCE {
                 self.gesture = Some(Gesture::Decided);
-                if let Some(output) = self.layout.active_output().cloned() {
+                // In the overview the gesture is for what is under the pointer, as in niri:
+                // any of the workspaces showing can be scrolled sideways.
+                let under = self
+                    .pointer_position
+                    .filter(|_| self.layout.is_overview_open())
+                    .and_then(|position| self.output_under(position));
+                if let Some((output, pos_within_output)) = under {
+                    if x.abs() > y.abs() {
+                        let ws_idx = self
+                            .layout
+                            .workspace_under(true, &output, pos_within_output)
+                            .map(|ws| ws.id())
+                            .and_then(|id| self.layout.find_workspace_by_id(id))
+                            .map(|(idx, _)| idx);
+                        if ws_idx.is_some() {
+                            self.layout.view_offset_gesture_begin(&output, ws_idx, true);
+                        }
+                    } else {
+                        self.layout.workspace_switch_gesture_begin(&output, true);
+                    }
+                } else if let Some(output) = self.layout.active_output().cloned() {
                     if x.abs() > y.abs() {
                         self.layout.view_offset_gesture_begin(&output, None, true);
                     } else {
@@ -849,6 +897,23 @@ impl<B: WindowBackend> State<B> {
         self.focus_dirty = true;
     }
 
+    /// Carries out a scroll on the overview, with the pointer at `position`.
+    pub fn overview_scroll(&mut self, input: crate::scroll::ScrollInput, position: GlobalPoint) {
+        use crate::scroll::ScrollInput;
+
+        self.pointer_position = Some(position);
+        match input {
+            ScrollInput::Action(action) => {
+                self.do_action(action);
+            }
+            ScrollInput::GestureUpdate { delta_x, delta_y } => {
+                self.gesture_update(delta_x, delta_y);
+            }
+            ScrollInput::GestureEnd => self.gesture_end(),
+        }
+        self.pointer_position = None;
+    }
+
     /// Whether the user is looking at a macOS Space other than the one ElaraWM manages.
     ///
     /// ElaraWM arranges the windows of one Space: the one that was showing when it started.
@@ -866,6 +931,11 @@ impl<B: WindowBackend> State<B> {
         Some(name.unwrap_or_else(|| (monitor.active_workspace_idx() + 1).to_string()))
     }
 
+    /// Whether the overview is on screen: open, or on its way to open or closed.
+    pub fn overview_showing(&self) -> bool {
+        self.layout.is_overview_open() || self.layout.overview_zoom() != 1.
+    }
+
     /// Whether the `quit` action has run.
     pub fn should_quit(&self) -> bool {
         self.quit_requested
@@ -875,6 +945,10 @@ impl<B: WindowBackend> State<B> {
     fn targets(&self) -> Vec<Target> {
         let mut targets = Vec::with_capacity(self.windows.len());
         let mut placed = Vec::with_capacity(self.windows.len());
+        // The overview is a picture drawn over the windows. Under it they are arranged as
+        // they will be when it closes: the active workspace in place, the others out of
+        // sight.
+        let overview = self.overview_showing();
 
         for mon in self.layout.monitors() {
             let Some(display) = self.display_for_output(mon.output()) else {
@@ -884,10 +958,17 @@ impl<B: WindowBackend> State<B> {
 
             // Workspaces that are on screen right now. With instant animations that is the
             // active one only.
-            for (ws, ws_geo) in mon.workspaces_with_render_geo() {
+            let showing: Vec<(&Workspace<Window>, Point<f64, Logical>)> = if overview {
+                vec![(mon.active_workspace_ref(), Point::default())]
+            } else {
+                mon.workspaces_with_render_geo()
+                    .map(|(ws, geo)| (ws, geo.loc))
+                    .collect()
+            };
+            for (ws, ws_loc) in showing {
                 for (tile, tile_pos, visible) in ws.tiles_with_render_positions() {
                     let window = tile.window();
-                    let loc = ws_geo.loc + tile_pos + tile.window_loc();
+                    let loc = ws_loc + tile_pos + tile.window_loc();
                     let size = window.target_size();
                     let frame = Rect::new(
                         origin.x + loc.x.round(),
@@ -913,7 +994,7 @@ impl<B: WindowBackend> State<B> {
                     // window is hidden for as long as it would have to be up there. This only
                     // concerns a workspace that is on the move; a fullscreen window at rest
                     // also asks for the top of the display, and gets the nearest thing.
-                    let above_top = ws_geo.loc.y != 0. && frame.y < display.info.visible_frame.y;
+                    let above_top = ws_loc.y != 0. && frame.y < display.info.visible_frame.y;
                     let frame = if visible
                         && frame.intersects(&display.info.frame)
                         && !spills
@@ -933,8 +1014,10 @@ impl<B: WindowBackend> State<B> {
             }
 
             // A window being dragged with the mouse belongs to no workspace until it is
-            // dropped. niri draws it under the pointer; here the real window goes there.
-            if let Some((tile, output, tile_pos)) = self.layout.interactive_moved_tile() {
+            // dropped. niri draws it under the pointer; here the real window goes there. In
+            // the overview it is its card that is dragged, and the window stays put.
+            let moved = self.layout.interactive_moved_tile().filter(|_| !overview);
+            if let Some((tile, output, tile_pos)) = moved {
                 if output == mon.output() {
                     let window = tile.window();
                     let loc = tile_pos + tile.window_loc();
@@ -1046,7 +1129,7 @@ impl<B: WindowBackend> State<B> {
                 }
             }
 
-            if let Some((rect, parameters)) = mon.insert_hint_outline() {
+            if let Some((rect, parameters, _)) = mon.insert_hint_outline() {
                 hints.push(outline(rect, 0., parameters, (origin.x, origin.y)));
             }
 
@@ -1068,6 +1151,120 @@ impl<B: WindowBackend> State<B> {
         scrolling.extend(floating);
         scrolling.extend(moved);
         scrolling
+    }
+
+    /// Returns what the overview shows: every workspace and window as niri would draw them
+    /// zoomed out, with the rings, borders, tabs and insert hint that go with them. `None`
+    /// when the overview is not on screen.
+    fn overview(&self) -> Option<Overview> {
+        if !self.overview_showing() {
+            return None;
+        }
+        let zoom = self.layout.overview_zoom();
+        // How far open the overview is, from the zoom, which goes from 1 to the configured
+        // one. niri fades the shadows of the workspaces in by it.
+        let full = self.config.overview.zoom.clamp(0.0001, 0.75);
+        let progress = ((1. - zoom) / (1. - full)).clamp(0., 1.);
+        let shadow = self.config.overview.workspace_shadow;
+
+        let mut displays = Vec::new();
+        for mon in self.layout.monitors() {
+            let Some(display) = self.display_for_output(mon.output()) else {
+                continue;
+            };
+            let area = display.info.frame;
+            let origin = area.origin();
+
+            let mut workspaces = Vec::new();
+            // Bottom to top, in niri's order: tiled windows, their tabs, the insert hint,
+            // floating windows, and the window being dragged.
+            let mut scrolling = Vec::new();
+            let mut tabs = Vec::new();
+            let mut floating = Vec::new();
+
+            for (ws, geo) in mon.workspaces_with_render_geo() {
+                let ws_origin = (origin.x + geo.loc.x, origin.y + geo.loc.y);
+                let rect = Rect::new(ws_origin.0, ws_origin.1, geo.size.w, geo.size.h);
+                if rect.intersects(&area) {
+                    // As niri does: sized for a display 1080 high, and zoomed out with
+                    // the workspace.
+                    let norm = area.h / 1080. * zoom;
+                    let [r, g, b, a] = shadow.color.to_array_unpremul();
+                    workspaces.push(OverviewWorkspace {
+                        rect,
+                        color: ws.background_color().to_array_unpremul(),
+                        shadow: (!shadow.off).then_some(OverviewShadow {
+                            offset: (shadow.offset.x.0 * norm, shadow.offset.y.0 * norm),
+                            softness: shadow.softness * norm,
+                            color: [r, g, b, a * progress as f32],
+                        }),
+                    });
+                }
+
+                let active = ws.active_window().map(|window| window.window_id());
+                // Front to back, as the layout lists them.
+                let mut tiled = Vec::new();
+                let mut floated = Vec::new();
+                for (tile, tile_pos, visible) in ws.tiles_with_render_positions() {
+                    if !visible {
+                        continue;
+                    }
+                    let tile_origin = (
+                        ws_origin.0 + tile_pos.x * zoom,
+                        ws_origin.1 + tile_pos.y * zoom,
+                    );
+                    let is_active = active == Some(tile.window().window_id());
+                    let items = tile_items(tile, tile_origin, zoom, is_active, &area);
+                    if tile.window().is_floating() {
+                        floated.push(items);
+                    } else {
+                        tiled.push(items);
+                    }
+                }
+                scrolling.extend(tiled.into_iter().rev().flatten());
+                floating.extend(floated.into_iter().rev().flatten());
+
+                for (rect, parameters) in ws.tab_indicator_outlines() {
+                    let tab = scaled_outline(rect, 0., parameters, ws_origin, zoom);
+                    if tab.rect.intersects(&area) {
+                        tabs.push(OverviewItem::Shape(tab));
+                    }
+                }
+            }
+
+            let mut items = scrolling;
+            items.extend(tabs);
+            if let Some((rect, parameters, factor)) = mon.insert_hint_outline() {
+                // The rectangle comes zoomed out already; its corners do not.
+                let mut hint = scaled_outline(
+                    Rectangle::new(Point::default(), rect.size),
+                    0.,
+                    parameters,
+                    (origin.x + rect.loc.x, origin.y + rect.loc.y),
+                    1.,
+                );
+                hint.corner_radius = hint.corner_radius.map(|radius| radius * factor);
+                items.push(OverviewItem::Shape(hint));
+            }
+            items.extend(floating);
+            if let Some((tile, output, tile_pos)) = self.layout.interactive_moved_tile() {
+                if output == mon.output() {
+                    let tile_origin = (origin.x + tile_pos.x, origin.y + tile_pos.y);
+                    items.extend(tile_items(tile, tile_origin, zoom, true, &area));
+                }
+            }
+
+            displays.push(OverviewDisplay {
+                display: display.info.id,
+                workspaces,
+                items,
+            });
+        }
+
+        Some(Overview {
+            backdrop: self.config.overview.backdrop_color.to_array_unpremul(),
+            displays,
+        })
     }
 
     fn other_displays<'a>(
@@ -1154,6 +1351,7 @@ impl<B: WindowBackend> State<B> {
     /// display since unplugged, is put on the display it is on now.
     pub fn release_windows(&mut self) {
         self.backend.set_outlines(&[]);
+        self.backend.set_overview(None);
 
         let mut offset = 0.;
         let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();
@@ -1211,26 +1409,83 @@ fn outline(
     parameters: &Parameters,
     origin: (f64, f64),
 ) -> Outline {
+    scaled_outline(rect, line_width, parameters, origin, 1.)
+}
+
+/// Like [`outline()`], for a shape that is drawn `zoom` times its size, as in the overview:
+/// `rect` is relative to `origin` at full size.
+fn scaled_outline(
+    rect: Rectangle<f64, Logical>,
+    line_width: f64,
+    parameters: &Parameters,
+    origin: (f64, f64),
+    zoom: f64,
+) -> Outline {
     // A gradient is drawn in its first color.
     let color = parameters.color_from;
     let radius = parameters.corner_radius;
     Outline {
         rect: Rect::new(
-            origin.0 + rect.loc.x,
-            origin.1 + rect.loc.y,
-            rect.size.w,
-            rect.size.h,
+            origin.0 + rect.loc.x * zoom,
+            origin.1 + rect.loc.y * zoom,
+            rect.size.w * zoom,
+            rect.size.h * zoom,
         ),
-        line_width,
+        line_width: line_width * zoom,
         corner_radius: [
             radius.top_left,
             radius.top_right,
             radius.bottom_right,
             radius.bottom_left,
         ]
-        .map(f64::from),
+        .map(|radius| f64::from(radius) * zoom),
         color: [color.r, color.g, color.b, color.a * parameters.alpha],
     }
+}
+
+/// Returns what the overview draws for one tile, bottom to top: its border and focus ring,
+/// then the window. `tile_origin` is where the zoomed-out tile is, in global coordinates.
+/// Whatever lies wholly outside `area`, the display, is left out.
+fn tile_items(
+    tile: &Tile<Window>,
+    tile_origin: (f64, f64),
+    zoom: f64,
+    is_active: bool,
+    area: &Rect,
+) -> Vec<OverviewItem> {
+    let mut items = Vec::new();
+    for (rect, width, parameters) in tile.outlines(is_active).into_iter().flatten() {
+        let shape = scaled_outline(rect, width, parameters, tile_origin, zoom);
+        if shape.rect.intersects(area) {
+            items.push(OverviewItem::Shape(shape));
+        }
+    }
+
+    let window = tile.window();
+    let loc = tile.window_loc();
+    let size = tile.window_size();
+    let rect = Rect::new(
+        tile_origin.0 + loc.x * zoom,
+        tile_origin.1 + loc.y * zoom,
+        size.w * zoom,
+        size.h * zoom,
+    );
+    if rect.intersects(area) {
+        let radius = window.geometry_corner_radius();
+        items.push(OverviewItem::Window(OverviewWindow {
+            id: window.window_id(),
+            rect,
+            corner_radius: [
+                radius.top_left,
+                radius.top_right,
+                radius.bottom_right,
+                radius.bottom_left,
+            ]
+            .map(|radius| f64::from(radius) * zoom),
+            title: window.title(),
+        }));
+    }
+    items
 }
 
 fn size_of(frame: Rect) -> (i32, i32) {

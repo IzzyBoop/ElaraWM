@@ -124,10 +124,6 @@ COMMENT_OUT = [
         ],
     ),
     (
-        "ElaraWM: the overview is not supported yet.",
-        ["    Mod+O repeat=false { toggle-overview; }"],
-    ),
-    (
         "ElaraWM: screenshots are not supported. macOS has Shift+Command+3, 4 and 5.",
         [
             "    Print { screenshot; }",

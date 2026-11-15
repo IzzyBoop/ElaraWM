@@ -12,6 +12,12 @@
 //! the stack of workspaces up and down, whichever way the pointer first goes. And the config
 //! can bind actions to mouse buttons, as in `Mod+MouseMiddle { close-window; }`.
 //!
+//! In the overview none of this needs the mod key: a click on a window or a workspace goes
+//! to it and closes the overview, dragging a window moves it, and dragging with the right
+//! button scrolls the workspace under the pointer sideways. The overview is a window of
+//! ElaraWM's own, so those events do not come through the input tap but from the window,
+//! and reach [`State::pointer_input()`] by way of [`PointerInput::from_overview()`].
+//!
 //! niri does this with pointer grabs: `src/input/mod.rs`, `move_grab.rs`, `resize_grab.rs`
 //! and `spatial_movement_grab.rs`.
 //! This file has both halves of the same thing. [`PointerHandler`] sits in the input tap and
@@ -54,6 +60,25 @@ pub enum PointerInput {
     Release {
         button: MouseButton,
     },
+}
+
+impl PointerInput {
+    /// What a mouse event on the overview asks for. No mod key is needed there, and none is
+    /// taken to be held: a press with it held is taken by the input tap before the overview
+    /// sees it.
+    pub fn from_overview(event: &MouseEvent) -> Self {
+        match event.kind {
+            MouseEventKind::Pressed(button) => Self::Press {
+                button,
+                position: event.position,
+                mod_down: false,
+            },
+            MouseEventKind::Dragged => Self::Motion {
+                position: event.position,
+            },
+            MouseEventKind::Released(button) => Self::Release { button },
+        }
+    }
 }
 
 /// What to do with a mouse event.
@@ -245,7 +270,10 @@ fn delta(from: GlobalPoint, to: GlobalPoint) -> Point<f64, Logical> {
 impl<B: WindowBackend> State<B> {
     /// Returns the display under a point in global coordinates, as the layout's output and
     /// the point within it.
-    fn output_under(&self, position: GlobalPoint) -> Option<(Output, Point<f64, Logical>)> {
+    pub(crate) fn output_under(
+        &self,
+        position: GlobalPoint,
+    ) -> Option<(Output, Point<f64, Logical>)> {
         let display = self
             .displays
             .iter()
@@ -283,7 +311,13 @@ impl<B: WindowBackend> State<B> {
     /// kept from the application under the pointer. Without the mod key, that is a left
     /// press on the tab of a tabbed column, which switches to that tab as in niri. With it,
     /// see [`can_grab()`](Self::can_grab).
+    ///
+    /// On the overview, a press without the mod key is left alone here: the overview gets
+    /// it as any window would, and hands it over itself.
     pub fn takes_press(&self, button: MouseButton, position: GlobalPoint, mod_down: bool) -> bool {
+        if self.overview_showing() {
+            return mod_down && self.can_grab(button, position);
+        }
         if mod_down {
             self.can_grab(button, position)
         } else {
@@ -337,10 +371,14 @@ impl<B: WindowBackend> State<B> {
     }
 
     /// A press without the mod key. During a move, it is the other button, which toggles
-    /// floating. Otherwise it was taken because it is on a tab.
+    /// floating. Otherwise it is on the overview, or was taken because it is on a tab.
     fn plain_press(&mut self, button: MouseButton, position: GlobalPoint) {
         if self.pointer_grab.is_some() {
             self.pointer_press(button, position);
+            return;
+        }
+        if self.layout.is_overview_open() {
+            self.overview_press(button, position);
             return;
         }
         let Some(window) = self.tab_under(position) else {
@@ -350,6 +388,58 @@ impl<B: WindowBackend> State<B> {
         self.layout.activate_window(&window);
         self.focus_dirty = true;
         self.pointer_grab = Some(PointerGrab::Spent { button });
+    }
+
+    /// niri's `on_pointer_button()`, for a press on the overview.
+    fn overview_press(&mut self, button: MouseButton, position: GlobalPoint) {
+        let Some((output, pos_within_output)) = self.output_under(position) else {
+            return;
+        };
+
+        match button {
+            // Dragging with the right button scrolls the workspace under the pointer.
+            MouseButton::Right => {
+                let ws_idx = self
+                    .layout
+                    .workspace_under(true, &output, pos_within_output)
+                    .map(|ws| ws.id())
+                    .and_then(|id| self.layout.find_workspace_by_id(id))
+                    .map(|(idx, _)| idx);
+                let Some(ws_idx) = ws_idx else {
+                    return;
+                };
+                self.layout.focus_output(&output);
+                self.layout
+                    .view_offset_gesture_begin(&output, Some(ws_idx), false);
+                self.pointer_grab = Some(PointerGrab::Spatial {
+                    button,
+                    start: position,
+                    last: position,
+                    output,
+                    gesture: SpatialGesture::ViewOffset,
+                });
+            }
+            MouseButton::Left => {
+                if self.window_under(position).is_some() {
+                    // Moves the window if dragged; goes to it if not.
+                    self.pointer_press(button, position);
+                    return;
+                }
+                // A click on a workspace goes to it.
+                let ws_idx = self
+                    .layout
+                    .workspace_under(false, &output, pos_within_output)
+                    .map(|ws| ws.id())
+                    .and_then(|id| self.layout.find_workspace_by_id(id))
+                    .map(|(idx, _)| idx);
+                self.layout.focus_output(&output);
+                if let Some(ws_idx) = ws_idx {
+                    self.layout.toggle_overview_to_workspace(ws_idx);
+                }
+                self.focus_dirty = true;
+            }
+            MouseButton::Middle | MouseButton::Back | MouseButton::Forward => {}
+        }
     }
 
     /// niri's `on_pointer_button()`, for a press with the mod key held.
@@ -390,8 +480,12 @@ impl<B: WindowBackend> State<B> {
 
         match button {
             MouseButton::Left => {
-                debug!(id = window.0, "mod+left press on window");
-                self.layout.activate_window(&window);
+                debug!(id = window.0, "press on window to move it");
+                // In the overview, a click goes to the window and closes the overview, on
+                // release.
+                if !self.layout.is_overview_open() {
+                    self.layout.activate_window(&window);
+                }
                 self.pointer_grab = Some(PointerGrab::Move {
                     window,
                     button,
@@ -625,7 +719,20 @@ impl<B: WindowBackend> State<B> {
                     debug!(id = window.0, "dropping moved window");
                     self.layout.interactive_move_end(&window);
                 } else {
-                    // Activate the window on release.
+                    // Activate the window on release. This is most prominent in the
+                    // overview where windows are not activated on click. In the overview,
+                    // we also try to do a nice synchronized workspace animation.
+                    if self.layout.is_overview_open() {
+                        let res = self.layout.workspaces().find_map(|(mon, ws_idx, ws)| {
+                            ws.windows()
+                                .any(|w| w.window_id() == window)
+                                .then(|| (mon.map(|mon| mon.output().clone()), ws_idx))
+                        });
+                        if let Some((Some(output), ws_idx)) = res {
+                            self.layout.focus_output(&output);
+                            self.layout.toggle_overview_to_workspace(ws_idx);
+                        }
+                    }
                     self.layout.activate_window(&window);
                 }
             }

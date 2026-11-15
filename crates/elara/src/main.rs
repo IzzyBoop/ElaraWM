@@ -169,8 +169,8 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
     use elara::scroll::{ScrollHandler, ScrollInput};
     use elara::State;
     use elara_macos::{
-        accessibility_trusted, request_accessibility, run_main_loop, InputEvent, KeyTap,
-        MacBackend, MenuBar, MenuCommand, Wake,
+        accessibility_trusted, request_accessibility, run_main_loop, take_overview_input,
+        InputEvent, KeyTap, MacBackend, MenuBar, MenuCommand, OverviewInput, Wake,
     };
 
     /// How long to wait between frames of an animation. Each frame moves windows in other
@@ -338,7 +338,9 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
             }
             match event {
                 InputEvent::Key(event) => {
-                    let response = key_handler.handle(state.config(), event);
+                    let overview_open = state.layout().is_overview_open();
+                    let response =
+                        key_handler.handle_with_overview(state.config(), event, overview_open);
                     if let Some(action) = response.action {
                         tracing::debug!(repeat = event.is_repeat, "bound key pressed");
                         let input = Input::Scroll(ScrollInput::Action(action));
@@ -385,6 +387,10 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
         );
     }
 
+    // The overview is a window of ElaraWM's own. What is scrolled on it comes from that
+    // window, not through the tap, and has its own bookkeeping.
+    let mut overview_scroll = ScrollHandler::new();
+
     let mut crashed = false;
     // The interval bounds how long a signal waits to be noticed and how often applications
     // that were not ready to be observed are retried.
@@ -427,6 +433,19 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
                     }
                     Input::Scroll(ScrollInput::GestureEnd) => state.gesture_end(),
                     Input::Pointer(input) => state.pointer_input(input),
+                }
+            }
+            for input in take_overview_input() {
+                match input {
+                    OverviewInput::Mouse(event) => {
+                        state.pointer_input(PointerInput::from_overview(&event));
+                    }
+                    OverviewInput::Scroll(event, position) => {
+                        let input = overview_scroll.handle_in_overview(&event, Instant::now());
+                        if let Some(input) = input {
+                            state.overview_scroll(input, position);
+                        }
+                    }
                 }
             }
             state.tick();
