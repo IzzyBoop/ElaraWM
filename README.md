@@ -364,10 +364,12 @@ the application whose window misbehaved.
 
 - `elara msg` and the IPC socket, niri's way of scripting the window manager.
 - Notarization, so that macOS opens a downloaded ElaraWM without being told to.
-- A build for Intel Macs.
+- A build for Intel Macs, and a try on versions of macOS older than 27.
 - Proper testing on more than one display.
 
 Not planned, since macOS has its own: screenshots and window shadows.
+
+[ROADMAP.md](ROADMAP.md) has what is planned and in what order.
 
 ## Building from source
 
