@@ -94,7 +94,18 @@ fn log_to_file_without_terminal() -> Option<PathBuf> {
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join("elara.log");
     let _ = std::fs::rename(&path, dir.join("elara.log.1"));
-    let file = std::fs::File::create(&path).ok()?;
+    // For its owner only: the log names the home directory and, when asked for more detail,
+    // the applications that have windows open.
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .ok()?
+    };
     // Standard error itself, so that the message of a panic lands in the file too.
     // SAFETY: both are open file descriptors, and nothing else is running yet that could be
     // writing to standard error.
@@ -363,8 +374,13 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
                             tracing::debug!(repeat = event.is_repeat, "bound key pressed");
                             let input = Input::Scroll(ScrollInput::Action(action));
                             inputs.borrow_mut().push_back(input);
-                        } else if event.pressed && event.modifiers != Default::default() {
-                            // Only the key code and modifiers, never what is being typed.
+                        } else if event.pressed
+                            && (event.modifiers.control
+                                || event.modifiers.option
+                                || event.modifiers.command)
+                        {
+                            // Only what could have been a shortcut, never what is being
+                            // typed: a key with no modifier, or with Shift alone, is text.
                             tracing::trace!(
                                 keycode = event.keycode,
                                 modifiers = ?event.modifiers,

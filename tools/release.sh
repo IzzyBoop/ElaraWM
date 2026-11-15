@@ -14,6 +14,10 @@
 #   gh release create v<version> target/release/ElaraWM-<version>-<arch>.zip
 set -eu
 
+# Times in the zip and in the signature are written in the local time zone, which says
+# roughly where the release was made. Nobody needs to know.
+export TZ=UTC
+
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/target/release"
 app="$out/ElaraWM.app"
@@ -46,8 +50,14 @@ fi
 
 zip="$out/ElaraWM-$version-$arch.zip"
 rm -f "$zip"
-# ditto keeps what a signed bundle needs, which zip does not.
-ditto -c -k --keepParent "$app" "$zip"
+# ditto keeps what a signed bundle needs, which zip does not. It is told to leave out
+# extended attributes: the signature does not need them, and the one macOS puts on every
+# file it tracks (com.apple.provenance) is an identifier from the machine that built it.
+ditto -c -k --norsrc --noextattr --keepParent "$app" "$zip"
+if unzip -Z1 "$zip" | grep -q -E '(^|/)(\._|__MACOSX)'; then
+    echo "release: the zip carries extended attributes" >&2
+    exit 1
+fi
 
 echo "release: wrote $zip"
 echo "release: sha256 $(shasum -a 256 "$zip" | cut -d' ' -f1)"
