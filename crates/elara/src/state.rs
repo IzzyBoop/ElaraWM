@@ -12,7 +12,7 @@ use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    DisplayId, DisplayInfo, Event, Outline, Overview, OverviewDisplay, OverviewItem,
+    DisplayId, DisplayInfo, Event, Ghost, Outline, Overview, OverviewDisplay, OverviewItem,
     OverviewShadow, OverviewWindow, OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend,
     WindowId, WindowInfo, WindowKind,
 };
@@ -64,6 +64,9 @@ struct Target {
     usable: Rect,
     /// Whether `frame` is a place out of sight, where the window is kept, not shown.
     hidden: bool,
+    /// Where the window would be showing, if all that keeps it out of sight is that part
+    /// of that place is above the menu bar, where macOS lets no window go.
+    above_top: Option<Rect>,
 }
 
 /// niri's layout, driving macOS windows through a [`WindowBackend`].
@@ -871,10 +874,13 @@ impl<B: WindowBackend> State<B> {
             Some(overview) => {
                 self.backend.set_overview(Some(&overview));
                 self.backend.set_outlines(&[]);
+                self.backend.set_ghosts(&[]);
             }
             None => {
                 let outlines = self.outlines();
                 self.backend.set_outlines(&outlines);
+                let ghosts = self.ghosts();
+                self.backend.set_ghosts(&ghosts);
                 self.backend.set_overview(None);
             }
         }
@@ -1112,6 +1118,14 @@ impl<B: WindowBackend> State<B> {
                         && frame.intersects(&display.info.frame)
                         && !spills
                         && !above_top);
+                    let reaches_below = frame.max_y() > display.info.visible_frame.y;
+                    let above_top = (hidden
+                        && visible
+                        && above_top
+                        && !spills
+                        && reaches_below
+                        && frame.intersects(&display.info.frame))
+                    .then_some(frame);
                     let frame = if hidden {
                         self.parked(frame, display)
                     } else {
@@ -1123,6 +1137,7 @@ impl<B: WindowBackend> State<B> {
                         frame,
                         usable: display.info.visible_frame,
                         hidden,
+                        above_top,
                     });
                 }
             }
@@ -1147,6 +1162,7 @@ impl<B: WindowBackend> State<B> {
                         ),
                         usable: display.info.visible_frame,
                         hidden: false,
+                        above_top: None,
                     });
                 }
             }
@@ -1165,11 +1181,47 @@ impl<B: WindowBackend> State<B> {
                     frame: self.parked(frame, display),
                     usable: display.info.visible_frame,
                     hidden: true,
+                    above_top: None,
                 });
             }
         }
 
         targets
+    }
+
+    /// Returns the windows to show pictures of in place of the windows themselves: those of
+    /// a workspace on the move whose place is partly above the menu bar. niri draws a
+    /// workspace sliding in from above or out at the top; here the real windows cannot be
+    /// there, and without a picture they would be gone until they can.
+    ///
+    /// Pictures of windows need the Screen Recording permission, so this is only done when
+    /// the config asks for pictures in the overview.
+    fn ghosts(&self) -> Vec<Ghost> {
+        if !self.config.overview.window_thumbnails {
+            return Vec::new();
+        }
+        let mut ghosts = Vec::new();
+        for target in self.targets() {
+            let Some(rect) = target.above_top else {
+                continue;
+            };
+            // The window is out of sight already, or is about to be.
+            let Some(display) = self
+                .displays
+                .iter()
+                .find(|display| display.info.visible_frame == target.usable)
+            else {
+                continue;
+            };
+            let area = display.info.frame;
+            let top = display.info.visible_frame.y;
+            ghosts.push(Ghost {
+                window: target.id,
+                rect,
+                clip: Rect::new(area.x, top, area.w, area.max_y() - top),
+            });
+        }
+        ghosts
     }
 
     /// Returns what niri draws around and between windows: borders, the focus ring, the tabs
@@ -1472,6 +1524,7 @@ impl<B: WindowBackend> State<B> {
     /// A window whose original place is no longer on any display, such as one that was on a
     /// display since unplugged, is put on the display it is on now.
     pub fn release_windows(&mut self) {
+        self.backend.set_ghosts(&[]);
         self.backend.set_outlines(&[]);
         self.backend.set_overview(None);
         self.backend.set_hotkey_overlay(None);

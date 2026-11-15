@@ -4,6 +4,7 @@ mod app;
 mod ax;
 mod backend;
 mod display;
+mod ghosts;
 mod hotkey_overlay;
 mod keys;
 mod menu_bar;

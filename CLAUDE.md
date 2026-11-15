@@ -23,6 +23,10 @@ Wayland/Smithay backend.
   extra permission. `window-thumbnails` in the `overview` section, an addition to niri's
   config, has the cards show pictures of the windows, taken with ScreenCaptureKit; that
   needs the Screen Recording permission, and without it the cards stay.
+- macOS lets no window go above the menu bar, so the windows of a workspace sliding in from
+  above or out at the top are kept out of sight while their place is partly up there. With
+  `window-thumbnails` on, a picture of each is drawn in its place (`Ghost` in `elara-macos`),
+  cut off at the menu bar. Without it they are simply gone until they can be there.
 - The hotkey overlay is niri's `src/ui/hotkey_overlay.rs` in the `elara` crate, deciding
   what to list; `elara-macos` draws the list with AppKit in a small window on each display.
   Pango markup in titles is read by `crates/elara/src/ui/markup.rs`, which knows a subset.
@@ -93,13 +97,14 @@ cargo build it attaches to whatever launched the binary: the terminal or the edi
 cargo run -p elara-macos --example probe            # permission, displays, windows
 cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
 cargo run -p elara-macos --example thumbnails -- 4  # window pictures, shown for 4 seconds
+cargo run -p elara-macos --example ghosts -- 3      # a window's picture sliding in from the top
 cargo run -p elara --example hotkey_overlay -- --show 3   # the hotkey overlay, for 3 seconds
 ```
 
 The `hotkey_overlay` example is not the daemon: it only draws the list, and moves nothing.
 
-The `thumbnails` example needs the Screen Recording permission as well and stops without
-it. Do not pass it `--ask` unasked: that puts a system dialog on the user's screen.
+The `thumbnails` and `ghosts` examples need the Screen Recording permission as well and stop
+without it. Do not pass it `--ask` unasked: that puts a system dialog on the user's screen.
 
 **Do not run the `elara` binary, or open `ElaraWM.app`, to check something unless the user asked
 for a live run.** Once

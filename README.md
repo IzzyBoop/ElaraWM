@@ -140,7 +140,13 @@ changes. If an edit has an error, the error is printed and the previous config s
   stays. The pictures are taken again about once a second while the overview is open, so
   a video in a window moves in steps. On recent versions of macOS the system reminds you
   from time to time that ElaraWM can record the screen. ElaraWM uses the permission for
-  nothing else, and the pictures never leave its memory.
+  nothing but this and the next point, and the pictures never leave its memory.
+- With `window-thumbnails` on, switching workspaces uses pictures too. macOS lets no window
+  go above the menu bar, so a workspace that slides in from above, or out at the top, has
+  its windows kept out of sight while their place is partly up there. A picture of each
+  slides in its place, and the window takes over when it can be there itself. Without
+  `window-thumbnails` such windows are simply gone for that part of the way. The first
+  time a window is needed like this, its picture can take a moment to turn up.
 - `Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display, and
   pressing it again, or any other key, a click or scrolling, takes the list away. It also
   shows when ElaraWM starts; `skip-at-startup` in the `hotkey-overlay` section stops that,
