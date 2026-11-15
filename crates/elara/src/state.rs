@@ -1263,6 +1263,8 @@ impl<B: WindowBackend> State<B> {
 
         Some(Overview {
             backdrop: self.config.overview.backdrop_color.to_array_unpremul(),
+            // The pictures are never shown larger than the overview is zoomed when open.
+            thumbnails: self.config.overview.window_thumbnails.then_some(full),
             displays,
         })
     }

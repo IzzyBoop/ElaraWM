@@ -12,7 +12,7 @@ use elara_macos::{
     KeyEvent, KeyModifiers, MockBackend, MouseButton, MouseEvent, MouseEventKind, Overview,
     OverviewItem, OverviewWindow, Point, Rect, ScrollEvent, ScrollPhase, WindowBackend, WindowId,
 };
-use niri_config::Action;
+use niri_config::{Action, Config};
 
 const SCREEN: Rect = Rect::new(0., 0., 1800., 1169.);
 /// niri's default zoom.
@@ -176,6 +176,25 @@ fn the_overview_draws_every_workspace_zoomed_out_and_leaves_the_windows_alone() 
         })
         .expect("a ring is drawn");
     assert_eq!(ring.line_width, 4. * ZOOM);
+}
+
+#[test]
+fn pictures_of_windows_are_asked_for_only_when_the_config_says_so() {
+    let (mut state, _) = two_workspaces();
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+    assert_eq!(overview(&state).thumbnails, None);
+
+    let config = Config::parse_mem("overview {\n zoom 0.4\n window-thumbnails\n}").unwrap();
+    state.set_config(config);
+    state.tick();
+    // As large as the windows are drawn when the overview is open.
+    assert_eq!(overview(&state).thumbnails, Some(0.4));
+
+    let config = Config::parse_mem("overview {\n window-thumbnails false\n}").unwrap();
+    state.set_config(config);
+    state.tick();
+    assert_eq!(overview(&state).thumbnails, None);
 }
 
 #[test]

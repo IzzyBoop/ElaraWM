@@ -56,6 +56,21 @@ HEADER = """\
 # (line that must exist exactly once, replacement lines)
 REPLACEMENTS = [
     (
+        "binds {",
+        [
+            "// ElaraWM: the overview shows each window as a card with its application's icon and",
+            "// its title. Uncomment this to have it show pictures of the windows instead. That",
+            "// needs the Screen Recording permission: macOS asks the first time the overview is",
+            "// opened, and ElaraWM has to be started again once the permission is granted.",
+            "// Without it, the cards stay.",
+            "// overview {",
+            "//     window-thumbnails",
+            "// }",
+            "",
+            "binds {",
+        ],
+    ),
+    (
         "// You can configure outputs by their name, which you can find",
         [
             '// ElaraWM: macOS controls displays. This section is ignored, even without its "/-".',

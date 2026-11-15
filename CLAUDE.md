@@ -18,7 +18,10 @@ Wayland/Smithay backend.
   `animations { off }` turns these off too.
 - The overview is a picture: a window of ElaraWM's own covers each display and draws a card
   per window where niri would draw the window zoomed out. The real windows stay under it,
-  arranged as they will be when it closes. No screen capture, so no extra permission.
+  arranged as they will be when it closes. By default there is no screen capture, so no
+  extra permission. `window-thumbnails` in the `overview` section, an addition to niri's
+  config, has the cards show pictures of the windows, taken with ScreenCaptureKit; that
+  needs the Screen Recording permission, and without it the cards stay.
 - One binary, run either with `cargo run -p elara` or from `ElaraWM.app`, which
   `tools/bundle-app.sh` builds around it. Keep macOS-facing code in `elara-macos`.
 - License is GPL-3.0-or-later.
@@ -85,7 +88,11 @@ cargo build it attaches to whatever launched the binary: the terminal or the edi
 ```sh
 cargo run -p elara-macos --example probe            # permission, displays, windows
 cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
+cargo run -p elara-macos --example thumbnails -- 4  # window pictures, shown for 4 seconds
 ```
+
+The `thumbnails` example needs the Screen Recording permission as well and stops without
+it. Do not pass it `--ask` unasked: that puts a system dialog on the user's screen.
 
 **Do not run the `elara` binary, or open `ElaraWM.app`, to check something unless the user asked
 for a live run.** Once

@@ -18,8 +18,8 @@ works with System Integrity Protection enabled.
 workspaces, and driven by niri's key bindings and config file. The strip of columns and the
 workspaces glide into place. The focus ring, window borders, the tab indicator of tabbed
 columns and the hint for where a dragged window will land are drawn; shadows are not. The
-overview shows every workspace zoomed out, with a card standing in for each window. It has
-had little use on a real desktop.
+overview shows every workspace zoomed out, with a card standing in for each window, or a
+picture of it if you allow screen recording. It has had little use on a real desktop.
 
 ## Goals
 
@@ -124,6 +124,22 @@ changes. If an edit has an error, the error is printed and the previous config s
   window while it is open, except with Command or Control held. The `overview` section sets
   `zoom`, `backdrop-color` and `workspace-shadow`. niri's hot corner and four-finger swipe
   are not there: macOS keeps both for itself.
+- The overview can show pictures of the windows in place of the cards. This is off unless
+  the config says:
+
+  ```kdl
+  overview {
+      window-thumbnails
+  }
+  ```
+
+  Taking the pictures needs a second permission, Screen Recording. macOS asks for it the
+  first time the overview is opened with this on; once it is granted, quit ElaraWM and
+  start it again. Until then, and for any window no picture could be taken of, the card
+  stays. The pictures are taken again about once a second while the overview is open, so
+  a video in a window moves in steps. On recent versions of macOS the system reminds you
+  from time to time that ElaraWM can record the screen. ElaraWM uses the permission for
+  nothing else, and the pictures never leave its memory.
 - ElaraWM arranges the windows of one macOS Space: the one that is showing when it starts.
   Windows on other Spaces are left as they are, and while you are on another Space ElaraWM
   takes no keys and moves nothing. A window dragged onto its Space joins the layout, and one

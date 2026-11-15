@@ -26,6 +26,15 @@ fn main() {
         "Accessibility permission: {}",
         if trusted { "granted" } else { "not granted" }
     );
+    // Only read: asking would put a dialog on screen.
+    println!(
+        "Screen Recording permission (for window-thumbnails): {}",
+        if elara_macos::screen_recording_permitted() {
+            "granted"
+        } else {
+            "not granted"
+        }
+    );
 
     println!(
         "Displays have separate Spaces: {}",

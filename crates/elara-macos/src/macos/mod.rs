@@ -10,6 +10,7 @@ mod overlay;
 mod overview;
 mod run_loop;
 mod spaces;
+mod thumbnails;
 
 use objc2_application_services::{
     kAXTrustedCheckOptionPrompt, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,
@@ -24,6 +25,7 @@ pub use self::menu_bar::{MenuBar, MenuCommand};
 pub use self::overlay::{rasterize, Overlay};
 pub use self::overview::{render_overview, take_overview_input, OverviewPanels};
 pub use self::run_loop::{run, Wake};
+pub use self::thumbnails::{request_screen_recording, screen_recording_permitted};
 use crate::DisplayInfo;
 
 /// Returns whether "Displays have separate Spaces" is switched on in System Settings, under
