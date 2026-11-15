@@ -119,6 +119,13 @@ Everything above `elara-macos` is tested against `MockBackend`, which needs neit
 nor the permission. Code in `elara-macos/src/macos/` can only be checked by running it with the
 permission granted; say so plainly when a change there has not been run that way.
 
+## Releases
+
+`tools/release.sh` builds `ElaraWM.app` and zips it as
+`target/release/ElaraWM-<version>-<arch>.zip`; the version is the one in `Cargo.toml`. Tag
+the commit `v<version>` and attach the zip to a GitHub release. Always sign with the same
+identity. Making a release publishes it: do it only when asked.
+
 ## Toolchain
 
 rustup is installed with Homebrew and is keg-only. If `cargo` is not on `PATH`:
