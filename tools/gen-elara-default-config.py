@@ -40,6 +40,8 @@ HEADER = """\
 //   It replaces what macOS does with an Option-click on a window, which is to hide the
 //   application you were in. Dragging with Mod and the middle button drags the strip of
 //   columns or the workspaces.
+// - A tiled window can also be resized by dragging one of its edges with nothing held, the
+//   way macOS has it: its column takes the new width.
 // - Sections that configure things macOS controls itself are read and ignored: `output`
 //   modes and positions, keyboard layouts, touchpad and mouse settings, the cursor, and
 //   layer rules.
@@ -47,9 +49,10 @@ HEADER = """\
 //   hint are drawn on top of them, in the gaps, from the settings in the `layout` section,
 //   gradients included. Window corners are taken to have a radius of 16
 //   unless a window rule sets `geometry-corner-radius`. Shadows are not shown, though their
-//   settings are accepted. Of the animations, the strip of columns sliding sideways
-//   and workspaces sliding up and down are shown; windows opening, closing and resizing
-//   take effect at once. `off` in the `animations` section turns the sliding off as well.
+//   settings are accepted. Of the animations, the strip of columns sliding sideways,
+//   workspaces sliding up and down, windows trading places and the overview zooming are
+//   shown; windows opening, closing and resizing take effect at once. `off` in the
+//   `animations` section turns them all off.
 
 """
 
