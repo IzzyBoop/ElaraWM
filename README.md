@@ -62,11 +62,16 @@ and ElaraWM waits in the menu bar until the permission is granted. Its log is wr
 
 "Start at Login" in the menu needs the application: it is greyed out for `cargo run`.
 
-The script signs the application ad hoc, since that needs no certificate. macOS then takes
-every build for a different application, so **the Accessibility permission has to be granted
-again after each rebuild** (remove the old ElaraWM entry from the list first). To keep the
-permission across builds, sign with a certificate, which can be a self-signed one made in
-Keychain Access (Certificate Assistant > Create a Certificate, type "Code Signing"):
+macOS ties the Accessibility permission to the application's signature. The script signs
+with a certificate named "ElaraWM Signing" if your keychain has one, and the permission then
+carries over from one build to the next. Without it the script signs ad hoc, which needs no
+certificate, but macOS then takes every build for a different application: the permission has
+to be granted again after each rebuild, and the old entries pile up in the list.
+
+To make the certificate, open Keychain Access and choose Certificate Assistant > Create a
+Certificate, with the name "ElaraWM Signing", identity type "Self-Signed Root" and certificate
+type "Code Signing". It only means something on your own machine. To sign with a different
+identity:
 
 ```sh
 ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
