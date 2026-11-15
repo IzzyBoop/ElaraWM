@@ -51,6 +51,9 @@ struct Inner {
     /// The last frame asked of the window. Kept so that a request the window answered
     /// differently is not repeated on every pass.
     last_request: Cell<Option<Rect>>,
+    /// A size the window was asked for where it had room to take it, and answered with
+    /// another that it has kept since.
+    settled_for: Cell<Option<(i32, i32)>>,
 
     /// Size the layout last asked for. A zero dimension means "keep what you have".
     requested_size: Cell<Option<Size<i32, Logical>>>,
@@ -165,6 +168,7 @@ impl Window {
             original_frame: info.frame,
             frame: Cell::new(info.frame),
             last_request: Cell::new(None),
+            settled_for: Cell::new(None),
             requested_size: Cell::new(None),
             sizing_mode: Cell::new(SizingMode::Normal),
             pending_sizing_mode: Cell::new(SizingMode::Normal),
@@ -231,6 +235,18 @@ impl Window {
     /// The last frame asked of the window, if it has not moved on its own since.
     pub fn last_request(&self) -> Option<Rect> {
         self.inner.last_request.get()
+    }
+
+    /// The size the window has declined in favor of the one it has, if any: it was asked for
+    /// it where nothing but the window itself stood in the way, and took another. A terminal
+    /// does this to fit whole rows of text. Asking again would change nothing.
+    pub fn settled_for(&self) -> Option<(i32, i32)> {
+        self.inner.settled_for.get()
+    }
+
+    /// Notes that the window answered a request for `size` with the size it has now.
+    pub fn set_settled_for(&self, size: Option<(i32, i32)>) {
+        self.inner.settled_for.set(size);
     }
 
     /// Records that the window was asked to take `request` and ended up with `actual`.
@@ -305,6 +321,7 @@ impl Window {
         // Whatever was asked before no longer describes the window, so the next pass asks
         // again.
         self.inner.last_request.set(None);
+        self.inner.settled_for.set(None);
         old != self.size()
     }
 

@@ -323,3 +323,30 @@ fn clicking_a_tab_switches_to_its_window() {
     assert_eq!(tabs_after[1].color, tabs_before[0].color);
     assert_eq!(tabs_after[0].color, tabs_before[1].color);
 }
+
+#[test]
+fn a_hidden_tab_that_picks_its_own_height_stays_out_of_sight() {
+    let (mut state, [a, b]) = tabbed_column();
+    // `b` is a terminal: it only takes heights that hold a whole number of rows, so it never
+    // has quite the height the column asks of it.
+    state.backend_mut().set_height_step(b, 17.);
+
+    // Show the terminal, then the other window again.
+    let column_x = frame(&state, a).x;
+    state.do_action(Action::FocusWindowDown);
+    state.tick();
+    let shown = frame(&state, b);
+    assert_eq!(shown.x, column_x);
+    assert_ne!(shown.h, SCREEN.h - 39. - 2. * GAP);
+
+    state.do_action(Action::FocusWindowUp);
+    state.tick();
+    assert_eq!(frame(&state, b).x, SCREEN.max_x() - 1.);
+
+    // The column changes width while the terminal is hidden. The terminal takes the new
+    // width and is still hidden afterwards.
+    state.do_action(Action::SwitchPresetColumnWidth);
+    state.tick();
+    assert_eq!(frame(&state, b).w, frame(&state, a).w);
+    assert_eq!(frame(&state, b).x, SCREEN.max_x() - 1.);
+}

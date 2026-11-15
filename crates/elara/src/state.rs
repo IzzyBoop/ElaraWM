@@ -723,17 +723,31 @@ impl<B: WindowBackend> State<B> {
                 // never get there. So when the new size does not fit at the target position,
                 // the window is first resized at the nearest position where it does, and
                 // placed properly on the next round.
-                let resizing = size_of(target.frame) != size_of(window.frame());
-                let request = if resizing {
-                    let anchored = self.anchored_for_resize(window, target.frame);
-                    fitted(anchored, target.usable)
+                //
+                // A window that was asked for the size like that and settled on another, as a
+                // terminal does to fit whole rows of text, will not answer differently a
+                // second time. It is moved to its place with the size it has. Asking again
+                // there would do harm where the place is out of sight: a resize is cut short
+                // at the edge of the display, and all but a corner of the window is past it.
+                let size = size_of(target.frame);
+                let current = window.frame();
+                let settled = size != size_of(current) && window.settled_for() == Some(size);
+                let resizing = size != size_of(current) && !settled;
+                let goal = if settled {
+                    Rect::new(target.frame.x, target.frame.y, current.w, current.h)
                 } else {
                     target.frame
+                };
+                let request = if resizing {
+                    let anchored = self.anchored_for_resize(window, goal);
+                    fitted(anchored, target.usable)
+                } else {
+                    goal
                 };
 
                 // Nothing to do if the window is there already, or was asked for exactly this
                 // and answered with something else that it has kept since.
-                if window.frame() == target.frame || window.last_request() == Some(request) {
+                if current == goal || window.last_request() == Some(request) {
                     continue;
                 }
 
@@ -755,7 +769,12 @@ impl<B: WindowBackend> State<B> {
                             self.layout.update_window(&target.id, None);
                             any_response = true;
                         }
-                        if request != target.frame {
+                        // Only where the size fit is another size the window's own choice.
+                        if resizing && learn_limits && size_of(actual) != size {
+                            window.set_settled_for(Some(size));
+                            any_response = true;
+                        }
+                        if request != goal {
                             any_response = true;
                         }
                     }
