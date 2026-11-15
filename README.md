@@ -72,9 +72,10 @@ Keychain Access (Certificate Assistant > Create a Certificate, type "Code Signin
 ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
 ```
 
-The icon is built from `resources/icons/MacOS Icons/Elara Exports/Elara-iOS-Default-1024@1x.png`.
-The layered `Elara.icon` beside it is the source for that export; compiling it into the
-application needs Xcode, which the script does not require.
+With Xcode installed, the icon is compiled from the layered
+`resources/icons/MacOS Icons/Elara.icon`, which gives it its dark, tinted and clear
+appearances. Without Xcode the script still works and uses the flat picture in `Elara Exports`
+next to it.
 
 ## Configuration
 
