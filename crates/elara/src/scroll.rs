@@ -7,9 +7,12 @@
 //!
 //! macOS keeps three-finger swipes for itself, so the swipe is mapped to scrolling with two
 //! fingers while the mod key is held.
+//!
+//! In the overview neither needs a modifier, as in niri: the wheel switches workspaces, or
+//! columns with Shift held or when tilted, and two fingers drag whatever is under the pointer.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use elara_macos::{ScrollEvent, ScrollPhase};
 use niri_config::{Action, Config, Key, Modifiers, Trigger};
@@ -122,6 +125,83 @@ impl ScrollHandler {
                 delta_y: event.delta_y,
             }),
         }
+    }
+
+    /// Handles one scroll event that landed on the overview. Such an event is not seen by
+    /// any application, so there is nothing to swallow.
+    pub fn handle_in_overview(&mut self, event: &ScrollEvent, now: Instant) -> Option<ScrollInput> {
+        let held = modifiers(event.modifiers);
+
+        if event.continuous {
+            // niri's gesture code does its own coasting.
+            if event.momentum {
+                return None;
+            }
+            // Only with no modifiers at all, as in niri.
+            if !held.is_empty() || event.phase == ScrollPhase::Ended {
+                let was_active = std::mem::take(&mut self.gesture_active);
+                return was_active.then_some(ScrollInput::GestureEnd);
+            }
+            self.gesture_active = true;
+            if event.delta_x == 0. && event.delta_y == 0. {
+                return None;
+            }
+            return Some(ScrollInput::GestureUpdate {
+                delta_x: event.delta_x,
+                delta_y: event.delta_y,
+            });
+        }
+
+        // As in `handle_wheel()`: Shift makes macOS report a vertical wheel as a horizontal
+        // one.
+        let (mut delta_x, mut delta_y) = (event.delta_x, event.delta_y);
+        if held.contains(Modifiers::SHIFT) && delta_y == 0. {
+            (delta_x, delta_y) = (0., delta_x);
+        }
+        let trigger = if delta_y > 0. {
+            Trigger::WheelScrollUp
+        } else if delta_y < 0. {
+            Trigger::WheelScrollDown
+        } else if delta_x > 0. {
+            Trigger::WheelScrollLeft
+        } else if delta_x < 0. {
+            Trigger::WheelScrollRight
+        } else {
+            return None;
+        };
+
+        // The binds niri has built in for the overview.
+        let cooldown = Duration::from_millis(50);
+        let (action, cooldown) = if held.is_empty() {
+            match trigger {
+                Trigger::WheelScrollUp => (Action::FocusWorkspaceUpUnderMouse, Some(cooldown)),
+                Trigger::WheelScrollDown => (Action::FocusWorkspaceDownUnderMouse, Some(cooldown)),
+                Trigger::WheelScrollLeft => (Action::FocusColumnLeftUnderMouse, None),
+                _ => (Action::FocusColumnRightUnderMouse, None),
+            }
+        } else if held == Modifiers::SHIFT {
+            match trigger {
+                Trigger::WheelScrollUp => (Action::FocusColumnLeftUnderMouse, Some(cooldown)),
+                Trigger::WheelScrollDown => (Action::FocusColumnRightUnderMouse, Some(cooldown)),
+                _ => return None,
+            }
+        } else {
+            return None;
+        };
+
+        if let Some(cooldown) = cooldown {
+            let key = Key {
+                trigger,
+                modifiers: Modifiers::empty(),
+            };
+            if let Some(last) = self.last_fired.get(&key) {
+                if now.saturating_duration_since(*last) < cooldown {
+                    return None;
+                }
+            }
+            self.last_fired.insert(key, now);
+        }
+        Some(ScrollInput::Action(action))
     }
 
     fn handle_wheel(

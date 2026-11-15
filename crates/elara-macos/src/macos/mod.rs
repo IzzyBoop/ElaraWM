@@ -7,6 +7,7 @@ mod display;
 mod keys;
 mod menu_bar;
 mod overlay;
+mod overview;
 mod run_loop;
 mod spaces;
 
@@ -21,6 +22,7 @@ pub use self::backend::MacBackend;
 pub use self::keys::{character_for_keycode, KeyTap};
 pub use self::menu_bar::{MenuBar, MenuCommand};
 pub use self::overlay::{rasterize, Overlay};
+pub use self::overview::{render_overview, take_overview_input, OverviewPanels};
 pub use self::run_loop::{run, Wake};
 use crate::DisplayInfo;
 

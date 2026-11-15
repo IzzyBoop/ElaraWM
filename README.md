@@ -17,7 +17,9 @@ works with System Integrity Protection enabled.
 **Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
 workspaces, and driven by niri's key bindings and config file. The strip of columns and the
 workspaces glide into place. The focus ring, window borders, the tab indicator of tabbed
-columns and the hint for where a dragged window will land are drawn; shadows are not. It has had little use on a real desktop.
+columns and the hint for where a dragged window will land are drawn; shadows are not. The
+overview shows every workspace zoomed out, with a card standing in for each window. It has
+had little use on a real desktop.
 
 ## Goals
 
@@ -29,7 +31,8 @@ columns and the hint for where a dragged window will land are drawn; shadows are
 ## What macOS does not allow
 
 ElaraWM is a window manager, not a compositor. It cannot change other applications' shadows,
-opacity or corner radius, and it cannot draw windows itself. Sections of a niri config that only
+opacity or corner radius, and it cannot draw windows itself, or draw them smaller than they
+are. Sections of a niri config that only
 make sense on Linux are accepted and ignored.
 
 ## Running
@@ -110,6 +113,17 @@ changes. If an edit has an error, the error is printed and the previous config s
   gradient is drawn as its first color. macOS does not say how round a window's corners are,
   so they are taken to have a radius of 16; set `geometry-corner-radius` in a window rule if
   the ring does not hug your windows.
+- `Mod+O` opens the overview, as in niri: the workspaces of each display, zoomed out, with
+  the columns that are out of view beside them. macOS does not let another application's
+  window be drawn small, so each window is shown as a card with its application's icon and
+  its title. A click on a window or a workspace goes to it; dragging a window moves it, to
+  another workspace if you like; dragging with the right button, or scrolling with two
+  fingers, moves a workspace's columns sideways or the workspaces up and down; the mouse
+  wheel switches workspaces, and columns with Shift held. None of that needs `Mod`. Escape
+  or Return closes the overview and the arrow keys move around in it. Other keys reach no
+  window while it is open, except with Command or Control held. The `overview` section sets
+  `zoom`, `backdrop-color` and `workspace-shadow`. niri's hot corner and four-finger swipe
+  are not there: macOS keeps both for itself.
 - ElaraWM arranges the windows of one macOS Space: the one that is showing when it starts.
   Windows on other Spaces are left as they are, and while you are on another Space ElaraWM
   takes no keys and moves nothing. A window dragged onto its Space joins the layout, and one

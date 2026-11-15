@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    DisplayId, DisplayInfo, Error, Event, Outline, Rect, Size, WindowBackend, WindowId, WindowInfo,
-    WindowKind,
+    DisplayId, DisplayInfo, Error, Event, Outline, Overview, Rect, Size, WindowBackend, WindowId,
+    WindowInfo, WindowKind,
 };
 
 /// A window in a [`MockBackend`], with the limits its pretend application enforces.
@@ -36,6 +36,8 @@ pub struct MockBackend {
     frame_requests: Vec<(WindowId, Rect)>,
     /// The outlines last asked for.
     outlines: Vec<Outline>,
+    /// The overview, if it is showing.
+    overview: Option<Overview>,
     /// Whether the user is looking at another macOS Space.
     away: bool,
 }
@@ -229,6 +231,11 @@ impl MockBackend {
     }
 
     /// Returns every `set_frame` request received so far and forgets them.
+    /// Returns the overview, if it is showing.
+    pub fn overview(&self) -> Option<&Overview> {
+        self.overview.as_ref()
+    }
+
     /// Returns the outlines that are on screen.
     pub fn outlines(&self) -> &[Outline] {
         &self.outlines
@@ -343,6 +350,10 @@ impl WindowBackend for MockBackend {
 
     fn set_outlines(&mut self, outlines: &[Outline]) {
         self.outlines = outlines.to_vec();
+    }
+
+    fn set_overview(&mut self, overview: Option<&Overview>) {
+        self.overview = overview.cloned();
     }
 }
 

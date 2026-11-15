@@ -1645,6 +1645,12 @@ impl<W: LayoutElement> Workspace<W> {
         )
     }
 
+    // ELARA: niri draws the background with `render_background()`. ElaraWM draws the
+    // workspaces of the overview itself and asks for the color.
+    pub fn background_color(&self) -> niri_config::Color {
+        self.options.layout.background_color
+    }
+
     pub fn render_above_top_layer(&self) -> bool {
         self.scrolling.render_above_top_layer()
     }

@@ -43,7 +43,7 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/niri-config/tests/wiki-parses.rs` | `niri-config/tests/wiki-parses.rs` | modified: path to the wiki |
 | `crates/elara-layout/src/animation/` | `src/animation/` | verbatim |
 | `crates/elara-layout/src/layout/` | `src/layout/` | verbatim, tests included |
-| `crates/elara-layout/src/layout/workspace.rs` | `src/layout/workspace.rs` | modified: `configure_new_window()` removed, `tab_indicator_outlines()` added |
+| `crates/elara-layout/src/layout/workspace.rs` | `src/layout/workspace.rs` | modified: `configure_new_window()` removed, `tab_indicator_outlines()` and `background_color()` added |
 | `crates/elara-layout/src/layout/mod.rs` | `src/layout/mod.rs` | modified: `interactive_moved_tile()` added |
 | `crates/elara-layout/src/layout/focus_ring.rs` | `src/layout/focus_ring.rs` | modified: `outline()` added |
 | `crates/elara-layout/src/layout/insert_hint_element.rs` | `src/layout/insert_hint_element.rs` | modified: `outline()` added |

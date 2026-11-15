@@ -25,8 +25,9 @@ pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
 pub use macos::{
     accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
-    displays_have_separate_spaces, rasterize, request_accessibility, run as run_main_loop,
-    set_start_at_login, start_at_login, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay, Wake,
+    displays_have_separate_spaces, rasterize, render_overview, request_accessibility,
+    run as run_main_loop, set_start_at_login, start_at_login, take_overview_input, KeyTap,
+    MacBackend, MenuBar, MenuCommand, Overlay, OverviewPanels, Wake,
 };
 pub use mock::MockBackend;
 
@@ -140,6 +141,76 @@ pub struct Outline {
     /// Red, green, blue and opacity, each from 0 to 1. The colors are sRGB and are not
     /// multiplied by the opacity.
     pub color: [f32; 4],
+}
+
+/// The overview: every workspace and its windows, zoomed out.
+///
+/// macOS does not let a window manager shrink another application's windows. So the overview
+/// is a picture: it covers each display, and on it every window is drawn as a card, in the
+/// place and at the size the zoomed-out window would have. The real windows stay where they
+/// are, underneath.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Overview {
+    /// What shows behind the workspaces: red, green, blue and opacity, as in [`Outline`].
+    pub backdrop: [f32; 4],
+    /// What to draw on each display. A display that is not listed shows only the backdrop.
+    pub displays: Vec<OverviewDisplay>,
+}
+
+/// The part of the overview that one display shows. All coordinates are global.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverviewDisplay {
+    pub display: DisplayId,
+    /// The workspaces, drawn under everything else.
+    pub workspaces: Vec<OverviewWorkspace>,
+    /// Windows and what niri draws around them. Later ones are drawn over earlier ones.
+    pub items: Vec<OverviewItem>,
+}
+
+/// A workspace in the overview: a rectangle the shape of the display.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverviewWorkspace {
+    pub rect: Rect,
+    pub color: [f32; 4],
+    pub shadow: Option<OverviewShadow>,
+}
+
+/// The shadow a workspace casts on the backdrop.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OverviewShadow {
+    /// How far the shadow is shifted, to the right and down.
+    pub offset: (f64, f64),
+    /// How far the shadow fades out past its edge.
+    pub softness: f64,
+    pub color: [f32; 4],
+}
+
+/// Something drawn on top of the workspaces of the overview.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OverviewItem {
+    Window(OverviewWindow),
+    /// A focus ring, a border, a tab or the insert hint, zoomed out like the windows.
+    Shape(Outline),
+}
+
+/// A window in the overview.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverviewWindow {
+    pub id: WindowId,
+    /// Where the zoomed-out window is.
+    pub rect: Rect,
+    /// How round its corners are: top-left, top-right, bottom-right, bottom-left.
+    pub corner_radius: [f64; 4],
+    pub title: Option<String>,
+}
+
+/// What the user did on the overview, which is a window of ElaraWM's own and gets its mouse
+/// events the ordinary way and not through the input tap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverviewInput {
+    Mouse(MouseEvent),
+    /// A scroll, and where the pointer was, in global coordinates.
+    Scroll(ScrollEvent, Point),
 }
 
 /// Identifies a window for as long as it exists. Never reused within one backend.
@@ -292,4 +363,7 @@ pub trait WindowBackend {
     /// Shows exactly these outlines on top of the desktop, replacing whatever was shown.
     /// Later ones are drawn over earlier ones.
     fn set_outlines(&mut self, outlines: &[Outline]);
+
+    /// Shows the overview, replacing what it showed before, or takes it away with `None`.
+    fn set_overview(&mut self, overview: Option<&Overview>);
 }

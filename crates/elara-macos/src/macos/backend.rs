@@ -30,9 +30,11 @@ use objc2_core_graphics::{
 use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
 use super::overlay::Overlay;
+use super::overview::OverviewPanels;
 use super::{accessibility_trusted, ax, display, spaces};
 use crate::{
-    DisplayInfo, Error, Event, Outline, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+    DisplayInfo, Error, Event, Outline, Overview, Rect, WindowBackend, WindowId, WindowInfo,
+    WindowKind,
 };
 
 /// How long to wait for an application to answer one Accessibility request.
@@ -180,6 +182,10 @@ pub struct MacBackend {
     space_checked: Instant,
     /// The outlines last asked for, to tell when nothing changed.
     outlines: Vec<Outline>,
+    /// The windows the overview is drawn in, once it has been shown.
+    overview_panels: Option<OverviewPanels>,
+    /// The overview last asked for, to tell when nothing changed.
+    overview: Option<Overview>,
 }
 
 impl MacBackend {
@@ -210,6 +216,8 @@ impl MacBackend {
             home_active: true,
             space_checked: Instant::now(),
             outlines: Vec::new(),
+            overview_panels: None,
+            overview: None,
         };
 
         // Before any window is looked at: the overlay marks the Space that is showing now.
@@ -811,6 +819,21 @@ impl WindowBackend for MacBackend {
         self.overlay
             .get_or_insert_with(Overlay::new)
             .set(&displays, outlines);
+    }
+
+    fn set_overview(&mut self, overview: Option<&Overview>) {
+        // This is called on every pass; most of them change nothing.
+        if self.overview.as_ref() == overview {
+            return;
+        }
+        self.overview = overview.cloned();
+        let displays = display::displays(self.mtm);
+        let windows = &self.windows;
+        self.overview_panels
+            .get_or_insert_with(OverviewPanels::new)
+            .set(&displays, overview, &|id| {
+                windows.get(&id).map(|window| window.info.pid)
+            });
     }
 
     fn drain_events(&mut self) -> Vec<Event> {

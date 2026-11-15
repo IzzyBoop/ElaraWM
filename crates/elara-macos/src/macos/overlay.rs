@@ -145,7 +145,7 @@ impl Drop for Overlay {
     }
 }
 
-fn appkit_rect(frame: Rect, primary_height: f64) -> CGRect {
+pub(super) fn appkit_rect(frame: Rect, primary_height: f64) -> CGRect {
     CGRect::new(
         CGPoint::new(frame.x, primary_height - frame.y - frame.h),
         CGSize::new(frame.w, frame.h),
@@ -262,7 +262,7 @@ impl Surface {
     }
 }
 
-fn color(outline: &Outline) -> CFRetained<CGColor> {
+pub(super) fn color(outline: &Outline) -> CFRetained<CGColor> {
     let [r, g, b, a] = outline.color;
     CGColor::new_srgb(r.into(), g.into(), b.into(), a.into())
 }
@@ -292,7 +292,7 @@ fn add_rounded_rect(path: &CGMutablePath, rect: Rect, radii: [f64; 4]) {
 
 /// The area an outline covers, to be filled with the even-odd rule: a rounded rectangle, with
 /// a smaller one cut out of it if the outline is a line and not a filled shape.
-fn path(outline: &Outline) -> CFRetained<CGMutablePath> {
+pub(super) fn path(outline: &Outline) -> CFRetained<CGMutablePath> {
     let path = CGMutablePath::new();
     add_rounded_rect(&path, outline.rect, outline.corner_radius);
 
