@@ -332,6 +332,6 @@ fn a_window_arriving_from_above_is_shown_as_a_picture_until_it_can_be_there() {
 
 #[test]
 fn no_pictures_are_shown_unless_the_config_asks_for_them() {
-    let shown = arrive_from_above(default_config());
+    let shown = arrive_from_above(Config::parse_mem("").unwrap());
     assert!(shown.iter().all(|(_, ghost)| ghost.is_none()));
 }

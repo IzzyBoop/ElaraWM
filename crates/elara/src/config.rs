@@ -189,7 +189,10 @@ mod tests {
             } else if !line.starts_with("//") {
                 in_our_comment = false;
             }
-            let is_ours = in_our_comment || line.contains(r#"spawn "open" "-a""#);
+            let is_ours = in_our_comment
+                || line.contains(r#"spawn "open" "-a""#)
+                // The one section that is ElaraWM's own addition.
+                || matches!(line, "overview {" | "    window-thumbnails");
             assert!(
                 is_niri || is_ours,
                 "unexpected line in the default config: {line}"

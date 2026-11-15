@@ -125,8 +125,8 @@ changes. If an edit has an error, the error is printed and the previous config s
   window while it is open, except with Command or Control held. The `overview` section sets
   `zoom`, `backdrop-color` and `workspace-shadow`. niri's hot corner and four-finger swipe
   are not there: macOS keeps both for itself.
-- The overview can show pictures of the windows in place of the cards. This is off unless
-  the config says:
+- The overview can show pictures of the windows in place of the cards. The config file
+  ElaraWM writes when there is none has this on; a config without it has it off:
 
   ```kdl
   overview {

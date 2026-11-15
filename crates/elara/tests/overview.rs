@@ -181,6 +181,8 @@ fn the_overview_draws_every_workspace_zoomed_out_and_leaves_the_windows_alone() 
 #[test]
 fn pictures_of_windows_are_asked_for_only_when_the_config_says_so() {
     let (mut state, _) = two_workspaces();
+    // The default config file asks for them; a config that says nothing does not.
+    state.set_config(Config::parse_mem("").unwrap());
     state.do_action(Action::ToggleOverview);
     state.tick();
     assert_eq!(overview(&state).thumbnails, None);
