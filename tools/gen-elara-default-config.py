@@ -114,10 +114,6 @@ COMMENT_OUT = [
         ["        numlock", "        tap", "        natural-scroll"],
     ),
     (
-        "ElaraWM: the hotkey overlay is not supported yet.",
-        ["    Mod+Shift+Slash { show-hotkey-overlay; }"],
-    ),
-    (
         "ElaraWM: the Orca screen reader is a Linux program. macOS has VoiceOver (Command+F5).",
         [
             '    Super+Alt+S allow-when-locked=true hotkey-overlay-title=null { spawn-sh "pkill orca || exec orca"; }',

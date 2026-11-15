@@ -25,10 +25,10 @@ pub use geometry::{Point, Rect, Size};
 #[cfg(target_os = "macos")]
 pub use macos::{
     accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
-    displays_have_separate_spaces, rasterize, render_overview, request_accessibility,
-    request_screen_recording, run as run_main_loop, screen_recording_permitted, set_start_at_login,
-    start_at_login, take_overview_input, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay,
-    OverviewPanels, Wake,
+    displays_have_separate_spaces, rasterize, render_hotkey_overlay, render_overview,
+    request_accessibility, request_screen_recording, run as run_main_loop,
+    screen_recording_permitted, set_start_at_login, start_at_login, take_overview_input,
+    HotkeyOverlayPanels, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay, OverviewPanels, Wake,
 };
 pub use mock::MockBackend;
 
@@ -218,6 +218,38 @@ pub enum OverviewInput {
     Scroll(ScrollEvent, Point),
 }
 
+/// The list of important key bindings that niri shows over everything else: a title, and
+/// under it one line per binding, with the keys on the left and what they do on the right.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HotkeyOverlay {
+    pub title: String,
+    pub rows: Vec<HotkeyOverlayRow>,
+}
+
+/// One binding in the [`HotkeyOverlay`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HotkeyOverlayRow {
+    /// The keys, such as `Option + Shift + /`.
+    pub key: String,
+    /// What they do, as pieces of text that may each look different.
+    pub action: Vec<TextSpan>,
+}
+
+/// A piece of text that looks the same throughout.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextSpan {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+    /// Whether to use a font in which every character is as wide as every other.
+    pub monospace: bool,
+    /// The color of the text, if not the usual one: red, green, blue and opacity, as in
+    /// [`Outline`].
+    pub color: Option<[f32; 4]>,
+    /// The color behind the text, if any.
+    pub background: Option<[f32; 4]>,
+}
+
 /// Identifies a window for as long as it exists. Never reused within one backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(pub u64);
@@ -371,4 +403,8 @@ pub trait WindowBackend {
 
     /// Shows the overview, replacing what it showed before, or takes it away with `None`.
     fn set_overview(&mut self, overview: Option<&Overview>);
+
+    /// Shows the list of important key bindings in the middle of every display, on top of
+    /// everything else, or takes it away with `None`.
+    fn set_hotkey_overlay(&mut self, overlay: Option<&HotkeyOverlay>);
 }

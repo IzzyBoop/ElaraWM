@@ -22,6 +22,9 @@ Wayland/Smithay backend.
   extra permission. `window-thumbnails` in the `overview` section, an addition to niri's
   config, has the cards show pictures of the windows, taken with ScreenCaptureKit; that
   needs the Screen Recording permission, and without it the cards stay.
+- The hotkey overlay is niri's `src/ui/hotkey_overlay.rs` in the `elara` crate, deciding
+  what to list; `elara-macos` draws the list with AppKit in a small window on each display.
+  Pango markup in titles is read by `crates/elara/src/ui/markup.rs`, which knows a subset.
 - One binary, run either with `cargo run -p elara` or from `ElaraWM.app`, which
   `tools/bundle-app.sh` builds around it. Keep macOS-facing code in `elara-macos`.
 - License is GPL-3.0-or-later.
@@ -89,7 +92,10 @@ cargo build it attaches to whatever launched the binary: the terminal or the edi
 cargo run -p elara-macos --example probe            # permission, displays, windows
 cargo run -p elara-macos --example probe -- --ask   # also show the system permission dialog
 cargo run -p elara-macos --example thumbnails -- 4  # window pictures, shown for 4 seconds
+cargo run -p elara --example hotkey_overlay -- --show 3   # the hotkey overlay, for 3 seconds
 ```
+
+The `hotkey_overlay` example is not the daemon: it only draws the list, and moves nothing.
 
 The `thumbnails` example needs the Screen Recording permission as well and stops without
 it. Do not pass it `--ask` unasked: that puts a system dialog on the user's screen.

@@ -19,7 +19,8 @@ workspaces, and driven by niri's key bindings and config file. The strip of colu
 workspaces glide into place. The focus ring, window borders, the tab indicator of tabbed
 columns and the hint for where a dragged window will land are drawn; shadows are not. The
 overview shows every workspace zoomed out, with a card standing in for each window, or a
-picture of it if you allow screen recording. It has had little use on a real desktop.
+picture of it if you allow screen recording. niri's list of important hotkeys shows at startup
+and on `Mod+Shift+/`. It has had little use on a real desktop.
 
 ## Goals
 
@@ -140,6 +141,14 @@ changes. If an edit has an error, the error is printed and the previous config s
   a video in a window moves in steps. On recent versions of macOS the system reminds you
   from time to time that ElaraWM can record the screen. ElaraWM uses the permission for
   nothing else, and the pictures never leave its memory.
+- `Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display, and
+  pressing it again, or any other key, a click or scrolling, takes the list away. It also
+  shows when ElaraWM starts; `skip-at-startup` in the `hotkey-overlay` section stops that,
+  and `hide-not-bound` there leaves out the actions that have no key. The modifiers are
+  listed by the names on a Mac keyboard: Option, Command, Control. A bind's
+  `hotkey-overlay-title` sets what its line says, or with `null` leaves the bind out. niri
+  lets the title use Pango markup; of that, `<b>`, `<i>`, `<tt>` and the font, weight, style
+  and color attributes of `<span>` have an effect here.
 - ElaraWM arranges the windows of one macOS Space: the one that is showing when it starts.
   Windows on other Spaces are left as they are, and while you are on another Space ElaraWM
   takes no keys and moves nothing. A window dragged onto its Space joins the layout, and one

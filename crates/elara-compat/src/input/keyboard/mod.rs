@@ -26,7 +26,7 @@ pub mod xkb {
     use std::cmp::Ordering;
 
     use super::Keysym;
-    use super::keysym_names::KEYSYM_NAMES;
+    use super::keysym_names::{KEYSYM_NAMES, KEYSYM_VALUES};
     use super::keysyms::KEY_NoSymbol;
 
     pub type KeysymFlags = u32;
@@ -99,6 +99,32 @@ pub mod xkb {
         KEY_NoSymbol
     }
 
+    /// Gets the name of a keysym.
+    ///
+    /// Follows `xkb_keysym_get_name()` from libxkbcommon:
+    ///
+    /// - A keysym with names gets the first one the keysym header lists for it, which for `Page_Up`
+    ///   is `Prior`.
+    /// - A keysym that encodes a Unicode code point directly is `U` and the code point in hex.
+    /// - Any other keysym is `0x` and its value in hex.
+    pub fn keysym_get_name(keysym: Keysym) -> String {
+        let raw = keysym.raw();
+        if raw > KEYSYM_MAX {
+            return String::from("Invalid");
+        }
+
+        if let Ok(idx) = KEYSYM_VALUES.binary_search_by_key(&raw, |(value, _)| *value) {
+            return KEYSYM_VALUES[idx].1.to_owned();
+        }
+
+        if (0x0100_0100..=0x0110_ffff).contains(&raw) {
+            let width = if raw & 0x00ff_0000 != 0 { 8 } else { 4 };
+            return format!("U{:0width$X}", raw & 0x00ff_ffff);
+        }
+
+        format!("0x{raw:08x}")
+    }
+
     /// Compares two names ignoring ASCII case, like libxkbcommon's `istrcmp()`.
     fn cmp_ignore_case(a: &str, b: &str) -> Ordering {
         let a = a.bytes().map(|c| c.to_ascii_lowercase());
@@ -149,6 +175,38 @@ pub mod xkb {
                 let order = cmp_ignore_case(a, b).then_with(|| a.cmp(b));
                 assert!(order.is_lt(), "{a} must sort before {b}");
             }
+        }
+
+        #[test]
+        fn values_are_sorted_for_lookup() {
+            for pair in KEYSYM_VALUES.windows(2) {
+                assert!(pair[0].0 < pair[1].0, "{} must sort first", pair[0].1);
+            }
+        }
+
+        #[test]
+        fn names_of_keysyms() {
+            assert_eq!(keysym_get_name(Keysym::a), "a");
+            assert_eq!(keysym_get_name(Keysym::A), "A");
+            assert_eq!(keysym_get_name(Keysym::_1), "1");
+            assert_eq!(keysym_get_name(Keysym::slash), "slash");
+            assert_eq!(keysym_get_name(Keysym::Return), "Return");
+            assert_eq!(keysym_get_name(Keysym::XF86_AudioMute), "XF86AudioMute");
+            // The first name listed wins over later aliases.
+            assert_eq!(keysym_get_name(Keysym::Prior), "Prior");
+            assert_eq!(keysym_get_name(Keysym::Next), "Next");
+            // Every name leads back to the keysym it came from.
+            for (value, name) in KEYSYM_VALUES {
+                assert_eq!(exact(name).raw(), value);
+            }
+        }
+
+        #[test]
+        fn names_of_keysyms_without_one() {
+            assert_eq!(keysym_get_name(Keysym::new(0x0100_0440)), "U0440");
+            assert_eq!(keysym_get_name(Keysym::new(0x0101_f600)), "U0001F600");
+            assert_eq!(keysym_get_name(Keysym::new(0x0012_3456)), "0x00123456");
+            assert_eq!(keysym_get_name(Keysym::new(0x2000_0000)), "Invalid");
         }
 
         #[test]

@@ -368,6 +368,7 @@ dependencies = [
  "elara-compat",
  "elara-layout",
  "elara-macos",
+ "insta",
  "libc",
  "niri-config",
  "niri-ipc",

@@ -59,6 +59,7 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/elara-layout/src/utils/mod.rs` | `src/utils/mod.rs` | modified: Wayland-specific helpers and unused submodules removed |
 | `crates/elara-layout/src/window/mod.rs` | `src/window/mod.rs` | modified: `WindowRef` carries window facts instead of wrapping Wayland surfaces |
 | `crates/elara-layout/src/render_helpers/` | `src/render_helpers/` | stubbed, see below |
+| `crates/elara/src/ui/hotkey_overlay.rs` | `src/ui/hotkey_overlay.rs` | modified: `content()` in place of `render()` and `a11y_text()`; modifiers named as on a Mac keyboard; "Exit ElaraWM" |
 | `resources/default-config.kdl` | `resources/default-config.kdl` | verbatim |
 | `resources/elara-default-config.kdl` | `resources/default-config.kdl` | generated: niri's default with marked edits for macOS |
 | `docs/wiki/*.md` | `docs/wiki/*.md` | verbatim (images and assets not imported) |
@@ -71,6 +72,10 @@ re-sync and fix whatever no longer matches.
 
 `crates/elara-layout/src/input/mod.rs` and `crates/elara-layout/src/lib.rs` are ElaraWM's own;
 they only declare the imported modules.
+
+`crates/elara/src/ui/mod.rs` and `crates/elara/src/ui/markup.rs` are ElaraWM's own too. The
+second reads the Pango markup that titles in the hotkey overlay may use, as far as it changes
+what is drawn on macOS.
 
 #### How rendering is handled
 
@@ -132,5 +137,5 @@ python3 crates/elara-compat/tools/gen_keysym_names.py path/to/xkbcommon-keysyms.
     > crates/elara-compat/src/input/keyboard/keysym_names.rs
 ```
 
-The lookup in `input/keyboard/mod.rs` is a reimplementation of `xkb_keysym_from_name()`, not a
-copy.
+The lookups in `input/keyboard/mod.rs` are reimplementations of `xkb_keysym_from_name()` and
+`xkb_keysym_get_name()`, not copies.
