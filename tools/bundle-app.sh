@@ -37,7 +37,11 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 
 cd "$root"
-cargo build --release -p elara
+# The compiler writes the paths of the source files into the binary, for panic messages and
+# backtraces. Those start with the home directory of whoever built it, which has no place
+# in an application handed to others.
+RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$root=elarawm --remap-path-prefix=$HOME=~" \
+    cargo build --release -p elara
 version=$(cargo metadata --no-deps --format-version 1 |
     sed -n 's/.*"name":"elara","version":"\([^"]*\)".*/\1/p')
 if [ -z "$version" ]; then

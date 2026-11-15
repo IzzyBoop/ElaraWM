@@ -37,6 +37,12 @@ if codesign -dv "$app" 2>&1 | grep -q '^Signature=adhoc'; then
 fi
 codesign --verify --deep --strict "$app"
 
+# bundle-app.sh keeps the builder's home directory out of the binary. Make sure of it.
+if strings -a "$binary" | grep -q -F "$HOME/"; then
+    echo "release: the binary names paths under $HOME" >&2
+    exit 1
+fi
+
 zip="$out/ElaraWM-$version-$arch.zip"
 rm -f "$zip"
 # ditto keeps what a signed bundle needs, which zip does not.
