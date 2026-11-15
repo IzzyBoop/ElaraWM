@@ -8,13 +8,13 @@ works today.
 `ElaraWM.app` is meant to be what people install. These are what stands between the
 application as it builds today and that.
 
-1. **A place to download it from.** The repository is on GitHub, private for now, and the
-   README links to its Releases page. Still to do: make a first release, and make the
+1. **A place to download it from.** The repository is on GitHub, private for now, with a
+   first release, 0.1.0, and the README links to its Releases page. Still to do: make the
    repository public, without which nobody else can reach the download.
 
-2. **A release script.** One command that builds the application, signs it, zips it with
-   the version in its name and says what to upload. Today `tools/bundle-app.sh` stops at
-   the built application.
+2. **A release script.** `tools/release.sh` builds the application, checks its signature
+   and zips it with the version and architecture in its name. Tagging and uploading are
+   still done by hand; notarization (below) would become a step of it.
 
 3. **Developer ID signing and notarization.** A downloaded ElaraWM is refused by macOS
    until the user chooses "Open Anyway" in System Settings, because it is signed with a
