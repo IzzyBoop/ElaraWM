@@ -172,6 +172,7 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
         accessibility_trusted, request_accessibility, run_main_loop, take_overview_input,
         InputEvent, KeyTap, MacBackend, MenuBar, MenuCommand, OverviewInput, Wake,
     };
+    use niri_config::Action;
 
     /// How long to wait between frames of an animation. Each frame moves windows in other
     /// applications, which takes a few milliseconds, so this is the pause between frames
@@ -182,6 +183,8 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
     enum Input {
         Scroll(ScrollInput),
         Pointer(PointerInput),
+        /// Take the list of key bindings away: something was pressed or scrolled.
+        HideHotkeyOverlay,
     }
 
     /// The mark shown in the menu bar.
@@ -332,52 +335,71 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
             let Ok(state) = state.try_borrow() else {
                 return false;
             };
+            // As in niri, pressing or scrolling anything takes the list of key bindings away,
+            // after whatever else it does. That includes the key that shows the list, which
+            // makes it a toggle. The list counts as showing if a key that shows it is still
+            // waiting for the loop.
+            let hides_overlay = elara::ui::hides_hotkey_overlay(event)
+                && (state.hotkey_overlay_open()
+                    || inputs.borrow().iter().any(|input| {
+                        matches!(
+                            input,
+                            Input::Scroll(ScrollInput::Action(Action::ShowHotkeyOverlay))
+                        )
+                    }));
             // On another macOS Space, the keys and the mouse are not ElaraWM's.
-            if state.is_dormant() {
-                return false;
-            }
-            match event {
-                InputEvent::Key(event) => {
-                    let overview_open = state.layout().is_overview_open();
-                    let response =
-                        key_handler.handle_with_overview(state.config(), event, overview_open);
-                    if let Some(action) = response.action {
-                        tracing::debug!(repeat = event.is_repeat, "bound key pressed");
-                        let input = Input::Scroll(ScrollInput::Action(action));
-                        inputs.borrow_mut().push_back(input);
-                    } else if event.pressed && event.modifiers != Default::default() {
-                        // Only the key code and modifiers, never what is being typed.
-                        tracing::trace!(
-                            keycode = event.keycode,
-                            modifiers = ?event.modifiers,
-                            has_character = event.character.is_some(),
-                            "key with modifiers is not bound"
+            let swallow = if state.is_dormant() {
+                false
+            } else {
+                match event {
+                    InputEvent::Key(event) => {
+                        let overview_open = state.layout().is_overview_open();
+                        let response =
+                            key_handler.handle_with_overview(state.config(), event, overview_open);
+                        if let Some(action) = response.action {
+                            tracing::debug!(repeat = event.is_repeat, "bound key pressed");
+                            let input = Input::Scroll(ScrollInput::Action(action));
+                            inputs.borrow_mut().push_back(input);
+                        } else if event.pressed && event.modifiers != Default::default() {
+                            // Only the key code and modifiers, never what is being typed.
+                            tracing::trace!(
+                                keycode = event.keycode,
+                                modifiers = ?event.modifiers,
+                                has_character = event.character.is_some(),
+                                "key with modifiers is not bound"
+                            );
+                        }
+                        response.swallow
+                    }
+                    InputEvent::Scroll(event) => {
+                        let response = scroll_handler.handle(state.config(), event, Instant::now());
+                        if let Some(input) = response.input {
+                            inputs.borrow_mut().push_back(Input::Scroll(input));
+                        }
+                        response.swallow
+                    }
+                    InputEvent::Mouse(event) => {
+                        let response = pointer_handler.handle(
+                            state.config(),
+                            event,
+                            |button, position, mod_down| {
+                                state.takes_press(button, position, mod_down)
+                            },
                         );
+                        let mut inputs = inputs.borrow_mut();
+                        inputs.extend(response.inputs.into_iter().map(Input::Pointer));
+                        if let Some(action) = response.action {
+                            tracing::debug!("bound mouse button pressed");
+                            inputs.push_back(Input::Scroll(ScrollInput::Action(action)));
+                        }
+                        response.swallow
                     }
-                    response.swallow
                 }
-                InputEvent::Scroll(event) => {
-                    let response = scroll_handler.handle(state.config(), event, Instant::now());
-                    if let Some(input) = response.input {
-                        inputs.borrow_mut().push_back(Input::Scroll(input));
-                    }
-                    response.swallow
-                }
-                InputEvent::Mouse(event) => {
-                    let response = pointer_handler.handle(
-                        state.config(),
-                        event,
-                        |button, position, mod_down| state.takes_press(button, position, mod_down),
-                    );
-                    let mut inputs = inputs.borrow_mut();
-                    inputs.extend(response.inputs.into_iter().map(Input::Pointer));
-                    if let Some(action) = response.action {
-                        tracing::debug!("bound mouse button pressed");
-                        inputs.push_back(Input::Scroll(ScrollInput::Action(action)));
-                    }
-                    response.swallow
-                }
+            };
+            if hides_overlay {
+                inputs.borrow_mut().push_back(Input::HideHotkeyOverlay);
             }
+            swallow
         }
     });
     if tap.is_none() {
@@ -385,6 +407,8 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
             "could not install the input event tap; key bindings, scrolling and dragging \
              windows will not work"
         );
+        // Nothing could take the list of key bindings away again.
+        state.borrow_mut().hide_hotkey_overlay();
     }
 
     // The overview is a window of ElaraWM's own. What is scrolled on it comes from that
@@ -433,6 +457,7 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
                     }
                     Input::Scroll(ScrollInput::GestureEnd) => state.gesture_end(),
                     Input::Pointer(input) => state.pointer_input(input),
+                    Input::HideHotkeyOverlay => state.hide_hotkey_overlay(),
                 }
             }
             for input in take_overview_input() {

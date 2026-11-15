@@ -6,7 +6,8 @@ Usage:
 
 The header comes from https://github.com/xkbcommon/libxkbcommon
 (include/xkbcommon/xkbcommon-keysyms.h). The table includes deprecated aliases such as
-`Page_Up`, because libxkbcommon accepts them when parsing names and niri configs use them.
+`Page_Up`, because libxkbcommon accepts them when parsing names and niri configs use them. A
+second table goes the other way, from a value to the one name libxkbcommon reports for it.
 """
 
 import re
@@ -20,11 +21,16 @@ def main() -> None:
         sys.exit(__doc__)
 
     entries = {}
+    # The first name the header lists for a value is the one libxkbcommon gives back when asked
+    # for the name of a keysym.
+    canonical = {}
     with open(sys.argv[1], encoding="utf-8") as header:
         for line in header:
             m = DEFINE.match(line)
             if m:
-                entries[m.group(1)] = int(m.group(2), 16)
+                value = int(m.group(2), 16)
+                entries[m.group(1)] = value
+                canonical.setdefault(value, m.group(1))
 
     # Sorted case-insensitively, then by byte order, which is the order libxkbcommon uses for its
     # own table. Within a group of names that differ only by case, the last one is the "best"
@@ -38,6 +44,11 @@ def main() -> None:
     out.write(f"pub(super) static KEYSYM_NAMES: [(&str, u32); {len(names)}] = [\n")
     for name in names:
         out.write(f'    ("{name}", {entries[name]:#010x}),\n')
+    out.write("];\n\n")
+    out.write("/// Keysym values and the name of each, sorted by value.\n")
+    out.write(f"pub(super) static KEYSYM_VALUES: [(u32, &str); {len(canonical)}] = [\n")
+    for value in sorted(canonical):
+        out.write(f'    ({value:#010x}, "{canonical[value]}"),\n')
     out.write("];\n")
 
 

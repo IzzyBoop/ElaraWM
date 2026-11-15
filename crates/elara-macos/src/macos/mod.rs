@@ -4,6 +4,7 @@ mod app;
 mod ax;
 mod backend;
 mod display;
+mod hotkey_overlay;
 mod keys;
 mod menu_bar;
 mod overlay;
@@ -20,6 +21,7 @@ use objc2_foundation::MainThreadMarker;
 
 pub use self::app::{alert, bundle_identifier, set_start_at_login, start_at_login};
 pub use self::backend::MacBackend;
+pub use self::hotkey_overlay::{render_hotkey_overlay, HotkeyOverlayPanels};
 pub use self::keys::{character_for_keycode, KeyTap};
 pub use self::menu_bar::{MenuBar, MenuCommand};
 pub use self::overlay::{rasterize, Overlay};

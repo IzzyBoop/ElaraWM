@@ -15,6 +15,7 @@ pub mod keys;
 pub mod pointer;
 pub mod scroll;
 mod state;
+pub mod ui;
 mod window;
 
 pub use actions::{spawn, spawn_at_startup};

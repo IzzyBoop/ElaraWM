@@ -22,7 +22,9 @@ use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
 
+use crate::binds::mod_key;
 use crate::pointer::PointerGrab;
+use crate::ui::hotkey_overlay::HotkeyOverlay;
 use crate::window::Window;
 
 /// How many times one pass may go back and forth with the windows before giving up.
@@ -101,6 +103,8 @@ pub struct State<B: WindowBackend> {
     pub(crate) pointer_position: Option<GlobalPoint>,
     /// True until the windows that already existed at startup have been added.
     is_at_startup: bool,
+    /// The list of important key bindings, which shows over everything else while open.
+    pub(crate) hotkey_overlay: HotkeyOverlay,
 }
 
 impl<B: WindowBackend> State<B> {
@@ -113,6 +117,12 @@ impl<B: WindowBackend> State<B> {
         let mut clock = Clock::with_time(get_monotonic_time());
         clock.set_complete_instantly(true);
         let layout = Layout::new(clock.clone(), &config);
+
+        // As in niri, the list of key bindings greets the user unless the config says not to.
+        let mut hotkey_overlay = HotkeyOverlay::new(mod_key(&config));
+        if !config.hotkey_overlay.skip_at_startup {
+            hotkey_overlay.show();
+        }
 
         let mut state = Self {
             backend,
@@ -133,6 +143,7 @@ impl<B: WindowBackend> State<B> {
             quit_requested: false,
             pointer_position: None,
             is_at_startup: true,
+            hotkey_overlay,
         };
 
         state.sync_displays();
@@ -244,6 +255,8 @@ impl<B: WindowBackend> State<B> {
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
         self.push_config_to_layout();
+        self.hotkey_overlay
+            .on_hotkey_config_updated(mod_key(&self.config));
 
         let ids: Vec<WindowId> = self.windows.keys().copied().collect();
         for id in ids {
@@ -788,6 +801,8 @@ impl<B: WindowBackend> State<B> {
             }
         }
 
+        self.sync_hotkey_overlay();
+
         self.sync_focus();
 
         if let Some(focused) = self.layout.focus().map(|window| window.window_id()) {
@@ -929,6 +944,26 @@ impl<B: WindowBackend> State<B> {
         let monitor = self.layout.active_monitor_ref()?;
         let name = monitor.active_workspace_ref().name().cloned();
         Some(name.unwrap_or_else(|| (monitor.active_workspace_idx() + 1).to_string()))
+    }
+
+    /// Whether the list of important key bindings is showing.
+    pub fn hotkey_overlay_open(&self) -> bool {
+        self.hotkey_overlay.is_open()
+    }
+
+    /// Takes the list of important key bindings away, if it is showing. niri does this on
+    /// any key press, click or scroll.
+    pub fn hide_hotkey_overlay(&mut self) {
+        if self.hotkey_overlay.hide() {
+            self.sync_hotkey_overlay();
+        }
+    }
+
+    /// Has the backend show the list of key bindings as it is now, or not show it. The list
+    /// is made from the config in use, so it follows the config when that changes.
+    fn sync_hotkey_overlay(&mut self) {
+        let content = self.hotkey_overlay.content(&self.config);
+        self.backend.set_hotkey_overlay(content.as_ref());
     }
 
     /// Whether the overview is on screen: open, or on its way to open or closed.
@@ -1354,6 +1389,7 @@ impl<B: WindowBackend> State<B> {
     pub fn release_windows(&mut self) {
         self.backend.set_outlines(&[]);
         self.backend.set_overview(None);
+        self.backend.set_hotkey_overlay(None);
 
         let mut offset = 0.;
         let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();

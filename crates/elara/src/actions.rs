@@ -540,6 +540,11 @@ impl<B: WindowBackend> State<B> {
                 None => self.layout.focus_right(),
             },
 
+            Action::ShowHotkeyOverlay => {
+                // Shown by `apply()`, which follows every action.
+                self.hotkey_overlay.show();
+            }
+
             // Everything else drives a part of niri that has no macOS counterpart yet: the
             // screenshot UI, screencasts, the recent-windows switcher, keyboard
             // layouts, virtual terminals and monitor power.

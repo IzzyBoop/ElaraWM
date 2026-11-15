@@ -29,13 +29,14 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
+use super::hotkey_overlay::HotkeyOverlayPanels;
 use super::overlay::Overlay;
 use super::overview::OverviewPanels;
 use super::thumbnails::{Thumbnails, Wanted};
 use super::{accessibility_trusted, ax, display, spaces};
 use crate::{
-    DisplayInfo, Error, Event, Outline, Overview, OverviewItem, Rect, WindowBackend, WindowId,
-    WindowInfo, WindowKind,
+    DisplayInfo, Error, Event, HotkeyOverlay, Outline, Overview, OverviewItem, Rect, WindowBackend,
+    WindowId, WindowInfo, WindowKind,
 };
 
 /// How long to wait for an application to answer one Accessibility request.
@@ -187,6 +188,10 @@ pub struct MacBackend {
     overview_panels: Option<OverviewPanels>,
     /// The overview last asked for, to tell when nothing changed.
     overview: Option<Overview>,
+    /// The windows the list of key bindings is drawn in, once it has been shown.
+    hotkey_panels: Option<HotkeyOverlayPanels>,
+    /// The list of key bindings on screen, if any.
+    hotkey_overlay: Option<HotkeyOverlay>,
     /// Pictures of windows for the overview, if the config asks for them.
     thumbnails: Thumbnails,
     /// Which pictures the overview is showing: [`Thumbnails::version()`] as of then.
@@ -223,6 +228,8 @@ impl MacBackend {
             outlines: Vec::new(),
             overview_panels: None,
             overview: None,
+            hotkey_panels: None,
+            hotkey_overlay: None,
             thumbnails: Thumbnails::new(),
             thumbnails_shown: 0,
         };
@@ -890,6 +897,17 @@ impl WindowBackend for MacBackend {
             );
     }
 
+    fn set_hotkey_overlay(&mut self, overlay: Option<&HotkeyOverlay>) {
+        if self.hotkey_overlay.as_ref() == overlay {
+            return;
+        }
+        self.hotkey_overlay = overlay.cloned();
+        let displays = display::displays(self.mtm);
+        self.hotkey_panels
+            .get_or_insert_with(HotkeyOverlayPanels::new)
+            .set(&displays, overlay);
+    }
+
     fn drain_events(&mut self) -> Vec<Event> {
         // First of all: what follows depends on which Space is showing.
         self.refresh_home();
@@ -911,6 +929,12 @@ impl WindowBackend for MacBackend {
                     // A new display needs an overlay of its own.
                     if let Some(overlay) = &mut self.overlay {
                         overlay.set(&display::displays(self.mtm), &self.outlines);
+                    }
+                    // The list of key bindings is in the middle of each display.
+                    if let (Some(panels), Some(overlay)) =
+                        (&mut self.hotkey_panels, &self.hotkey_overlay)
+                    {
+                        panels.set(&display::displays(self.mtm), Some(overlay));
                     }
                 }
                 Raw::SpaceChanged => self.restart_space_checks(),
