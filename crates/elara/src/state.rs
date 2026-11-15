@@ -244,7 +244,6 @@ impl<B: WindowBackend> State<B> {
         let animations = &mut self.config.animations;
         animations.window_open.anim.off = true;
         animations.window_close.anim.off = true;
-        animations.window_movement.0.off = true;
         animations.window_resize.anim.off = true;
         let off = !self.animate || animations.off;
 

@@ -13,8 +13,9 @@ Wayland/Smithay backend.
 - Binary is `elara`; config is `~/.config/elara/config.kdl` in niri's KDL format.
 - `Mod` in binds is configurable and defaults to Option.
 - niri's animation clock stays in the core. The strip of columns and the workspaces glide
-  (horizontal-view-movement and workspace-switch), and the overview zooms (overview-open-close);
-  everything else, including window open, close and resize, takes effect at once.
+  (horizontal-view-movement and workspace-switch), windows glide when they trade places or
+  move between columns (window-movement), and the overview zooms (overview-open-close);
+  window open, close and resize take effect at once.
   `animations { off }` turns these off too.
 - The overview is a picture: a window of ElaraWM's own covers each display and draws a card
   per window where niri would draw the window zoomed out. The real windows stay under it,
