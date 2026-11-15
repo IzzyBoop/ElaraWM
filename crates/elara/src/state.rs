@@ -32,7 +32,7 @@ use crate::window::Window;
 /// One round places every window. A window that takes a different size than asked makes the
 /// layout move its neighbors, which needs a second round. Three leaves room for a window that
 /// answers the correction with yet another size.
-const MAX_APPLY_ROUNDS: usize = 3;
+const MAX_APPLY_ROUNDS: usize = 6;
 
 /// How long after asking the system to focus a window its confirmation is still expected.
 const FOCUS_ECHO_WINDOW: Duration = Duration::from_secs(1);
@@ -62,6 +62,8 @@ struct Target {
     frame: Rect,
     /// The part of the window's display that the menu bar and the Dock leave free.
     usable: Rect,
+    /// Whether `frame` is a place out of sight, where the window is kept, not shown.
+    hidden: bool,
 }
 
 /// niri's layout, driving macOS windows through a [`WindowBackend`].
@@ -716,6 +718,9 @@ impl<B: WindowBackend> State<B> {
     /// Makes the system match the layout: every window is asked to take the frame the layout
     /// computed for it, and the layout is told what each window actually did.
     pub fn apply(&mut self) {
+        // Windows that are out of sight change size last, once the ones in view have. See
+        // below.
+        let mut resize_hidden = false;
         for round in 0..MAX_APPLY_ROUNDS {
             self.refresh_clock();
             self.layout.advance_animations();
@@ -734,6 +739,7 @@ impl<B: WindowBackend> State<B> {
             }
 
             let mut any_response = false;
+            let mut waiting = false;
             for target in self.targets() {
                 let Some(window) = self.windows.get(&target.id) else {
                     continue;
@@ -761,7 +767,34 @@ impl<B: WindowBackend> State<B> {
                 } else {
                     target.frame
                 };
-                let request = if resizing {
+                let request = if resizing && target.hidden {
+                    // A window that is to be out of sight cannot change size there, and
+                    // has to be seen doing it somewhere. Two things keep that from looking
+                    // like a window blinking in the wrong place. It waits until the windows
+                    // in view have their sizes: by then it may have a place in view itself,
+                    // as when a column of tabs becomes a stack, and what is in view has moved
+                    // over where it is. And it changes size where it is, if it is in view,
+                    // not at the corner of the screen nearest to where it is going.
+                    if !resize_hidden {
+                        waiting = true;
+                        continue;
+                    }
+                    let from = if current.intersects(&target.usable) {
+                        Rect::new(current.x, current.y, goal.w, goal.h)
+                    } else {
+                        goal
+                    };
+                    let detour = fitted(from, target.usable);
+                    // Asked exactly this before, while it was in view, and it answered with
+                    // the size it has: that is its answer, and it can be put away as it is.
+                    let fits = detour.w <= target.usable.w && detour.h <= target.usable.h;
+                    if fits && window.last_request() == Some(detour) {
+                        window.set_settled_for(Some(size));
+                        any_response = true;
+                        continue;
+                    }
+                    detour
+                } else if resizing {
                     let anchored = self.anchored_for_resize(window, goal);
                     fitted(anchored, target.usable)
                 } else {
@@ -811,6 +844,10 @@ impl<B: WindowBackend> State<B> {
             }
 
             if !any_response {
+                if waiting && !resize_hidden {
+                    resize_hidden = true;
+                    continue;
+                }
                 break;
             }
             trace!(
@@ -1072,20 +1109,21 @@ impl<B: WindowBackend> State<B> {
                     // concerns a workspace that is on the move; a fullscreen window at rest
                     // also asks for the top of the display, and gets the nearest thing.
                     let above_top = ws_loc.y != 0. && frame.y < display.info.visible_frame.y;
-                    let frame = if visible
+                    let hidden = !(visible
                         && frame.intersects(&display.info.frame)
                         && !spills
-                        && !above_top
-                    {
-                        frame
-                    } else {
+                        && !above_top);
+                    let frame = if hidden {
                         self.parked(frame, display)
+                    } else {
+                        frame
                     };
                     placed.push(window.window_id());
                     targets.push(Target {
                         id: window.window_id(),
                         frame,
                         usable: display.info.visible_frame,
+                        hidden,
                     });
                 }
             }
@@ -1109,6 +1147,7 @@ impl<B: WindowBackend> State<B> {
                             f64::from(size.h),
                         ),
                         usable: display.info.visible_frame,
+                        hidden: false,
                     });
                 }
             }
@@ -1126,6 +1165,7 @@ impl<B: WindowBackend> State<B> {
                     id,
                     frame: self.parked(frame, display),
                     usable: display.info.visible_frame,
+                    hidden: true,
                 });
             }
         }
