@@ -104,6 +104,11 @@ changes. If an edit has an error, the error is printed and the previous config s
   leaves its column and lands where it is dropped. Pressing the other button while moving
   switches it between floating and tiled. While ElaraWM runs, this replaces the macOS
   behaviour of an Option-click hiding the application you were in.
+- A tiled window can also be resized the way macOS has it, by dragging one of its edges
+  with nothing held: its column takes the new width and the window the new height, and its
+  neighbors make room as you drag. The window goes back to its place in the layout when you
+  let go, with the size you gave it. A tiled window dragged by its title bar goes back to
+  its place as it was.
 - Holding `Mod` and dragging with the middle mouse button, anywhere, drags the strip of
   columns sideways or the workspaces up and down.
 - Mouse buttons can be bound like keys: `MouseLeft`, `MouseRight`, `MouseMiddle`, `MouseBack`

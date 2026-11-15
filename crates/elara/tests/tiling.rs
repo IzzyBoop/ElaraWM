@@ -436,3 +436,90 @@ fn a_window_with_a_minimum_close_to_what_was_asked_is_found_out() {
     assert!(frames[1].max_y() <= frames[2].y, "{frames:?}");
     assert!(frames[2].max_y() <= SCREEN.max_y(), "{frames:?}");
 }
+
+// Resizing a tiled window by its edge, which the system does on its own.
+
+#[test]
+fn dragging_the_edge_of_a_tiled_window_resizes_its_column() {
+    let mut state = start(MockBackend::with_laptop_display());
+    let a = open(&mut state, "a");
+    let b = open(&mut state, "b");
+    state.do_action(Action::FocusColumnFirst);
+    state.tick();
+    let (was_a, was_b) = (frame(&state, a), frame(&state, b));
+
+    // The user takes `a` by its right edge and pulls it 100 points wider, in two steps.
+    state.system_press(true);
+    for wider in [40., 100.] {
+        let mut dragged = was_a;
+        dragged.w += wider;
+        state.backend_mut().user_set_frame(a, dragged);
+        state.tick();
+        // It is left as the user has it, and its neighbor makes room as it goes.
+        assert_eq!(frame(&state, a), dragged);
+        assert_eq!(frame(&state, b).x, was_b.x + wider);
+    }
+    state.system_press(false);
+    state.tick();
+    assert_eq!(frame(&state, a).w, was_a.w + 100.);
+    assert_eq!(frame(&state, a).x, was_a.x);
+    assert_eq!(frame(&state, b).x, was_b.x + 100.);
+
+    // By the left edge: the window keeps the width and goes back to where its column is.
+    state.system_press(true);
+    let mut dragged = frame(&state, a);
+    dragged.x -= 10.;
+    dragged.w += 10.;
+    state.backend_mut().user_set_frame(a, dragged);
+    state.tick();
+    assert_eq!(frame(&state, a), dragged);
+    state.system_press(false);
+    state.tick();
+    assert_eq!(frame(&state, a).w, was_a.w + 110.);
+    assert_eq!(frame(&state, a).x, was_a.x);
+}
+
+#[test]
+fn dragging_the_edge_between_two_windows_of_a_column_resizes_them() {
+    let mut state = start(MockBackend::with_laptop_display());
+    let a = open(&mut state, "a");
+    let b = open(&mut state, "b");
+    state.do_action(Action::ConsumeOrExpelWindowLeft);
+    state.tick();
+    let (was_a, was_b) = (frame(&state, a), frame(&state, b));
+    assert_eq!(was_a.x, was_b.x);
+
+    // The bottom edge of the upper window, pulled 80 points up.
+    state.system_press(true);
+    let mut dragged = was_a;
+    dragged.h -= 80.;
+    state.backend_mut().user_set_frame(a, dragged);
+    state.tick();
+    state.system_press(false);
+    state.tick();
+
+    assert_eq!(frame(&state, a).h, was_a.h - 80.);
+    // The lower window takes up what was given.
+    assert_eq!(frame(&state, b).y, was_b.y - 80.);
+    assert_eq!(frame(&state, b).h, was_b.h + 80.);
+}
+
+#[test]
+fn a_tiled_window_dragged_away_is_put_back_when_it_is_let_go() {
+    let mut state = start(MockBackend::with_laptop_display());
+    let a = open(&mut state, "a");
+    let was = frame(&state, a);
+
+    state.system_press(true);
+    let mut dragged = was;
+    dragged.x += 200.;
+    dragged.y += 100.;
+    state.backend_mut().user_set_frame(a, dragged);
+    state.tick();
+    // Not pulled out from under the pointer.
+    assert_eq!(frame(&state, a), dragged);
+
+    state.system_press(false);
+    state.tick();
+    assert_eq!(frame(&state, a), was);
+}
