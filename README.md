@@ -169,7 +169,8 @@ opens the config file, shows the log, switches starting at login on or off, and 
 
 ### The hotkey list
 
-`Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display.
+`Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display, with
+the line around it that your focus ring has: its width, and its color or gradient.
 Pressing it again, or any other key, a click or scrolling, takes it away. It also shows
 when ElaraWM starts; `skip-at-startup` in the `hotkey-overlay` section stops that, and
 `hide-not-bound` there leaves out the actions that have no key. A bind's

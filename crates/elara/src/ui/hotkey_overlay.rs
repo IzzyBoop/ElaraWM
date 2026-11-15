@@ -79,9 +79,39 @@ impl HotkeyOverlay {
             })
             .collect();
 
+        // ELARA: niri draws a plain box. Here the list gets the line the focused window has,
+        // so that it goes with the windows around it.
+        let ring = config.layout.focus_ring;
+        let rgba = |color: niri_config::Color| [color.r, color.g, color.b, color.a];
+        let defaults = elara_macos::HotkeyOverlayFrame::default();
+        let frame = elara_macos::HotkeyOverlayFrame {
+            // A ring that is switched off still leaves the list with an edge.
+            width: if ring.off || ring.width <= 0. {
+                defaults.width
+            } else {
+                ring.width
+            },
+            // As in niri, a gradient takes precedence over the color.
+            color: rgba(ring.active_gradient.map_or(ring.active_color, |g| g.from)),
+            gradient: ring.active_gradient.map(|gradient| {
+                let (space, hue) = crate::state::color_space(gradient.in_);
+                elara_macos::Gradient {
+                    to: rgba(gradient.to),
+                    // The list itself is what the gradient spans.
+                    area: elara_macos::Rect::new(0., 0., 0., 0.),
+                    // As niri hands the angle to its shader.
+                    angle: f64::from(gradient.angle - 90).to_radians(),
+                    space,
+                    hue,
+                }
+            }),
+            ..defaults
+        };
+
         Some(elara_macos::HotkeyOverlay {
             title: String::from(TITLE),
             rows,
+            frame,
         })
     }
 }

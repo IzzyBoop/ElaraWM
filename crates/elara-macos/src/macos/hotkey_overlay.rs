@@ -4,6 +4,9 @@
 //! niri draws the list into one image and shows that. So does this: the text is drawn with
 //! AppKit into a bitmap, once per display scale, and each display gets a window just large
 //! enough to hold it. The window lets every click through.
+//!
+//! What the list says is niri's. How it looks is not: niri's is a plain box, and here it has
+//! the round corners of a window and the focus ring's line around it.
 
 use std::ffi::c_void;
 
@@ -18,27 +21,37 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGBitmapContextCreateImage, CGBitmapContextGetData, CGColor,
-    CGColorSpace, CGContext, CGImage, CGImageAlphaInfo,
+    CGBitmapContextCreate, CGBitmapContextCreateImage, CGBitmapContextGetData, CGColorSpace,
+    CGContext, CGImage, CGImageAlphaInfo, CGMutablePath,
 };
 use objc2_foundation::{NSMutableAttributedString, NSRange, NSString};
 use objc2_quartz_core::{CALayer, CATransaction};
 
-use super::overlay::appkit_rect;
-use crate::{DisplayId, DisplayInfo, HotkeyOverlay, Rect, TextSpan};
+use super::overlay::{add_rounded_rect, appkit_rect, cg_color, fill};
+use crate::{
+    DisplayId, DisplayInfo, Gradient, HotkeyOverlay, HotkeyOverlayFrame, Outline, Rect, TextSpan,
+};
 
-// The measures niri draws its hotkey overlay with, which are in logical pixels there and in
-// points here.
-const PADDING: f64 = 8.;
+// niri draws its list as a plain box. Here it is drawn to go with the windows around it:
+// corners as round as theirs, and a line around it like the ring around the focused window.
+// The measures are in points.
+/// Between the line around the list and what is in it.
+const PADDING: f64 = 18.;
 const FONT_SIZE: f64 = 14.;
-const BORDER: f64 = 4.;
-const LINE_INTERVAL: f64 = 2.;
-const OPACITY: f64 = 0.9;
+/// Between the title and the first binding.
+const TITLE_GAP: f64 = 14.;
+/// Between one binding and the next.
+const LINE_INTERVAL: f64 = 6.;
+/// Between the keys of a binding and what they do.
+const COLUMN_GAP: f64 = 14.;
+/// Between the keys of a binding and the edge of the cap they are drawn on.
+const KEY_PADDING: (f64, f64) = (8., 3.);
+const KEY_RADIUS: f64 = 7.;
+const OPACITY: f64 = 0.94;
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.];
-const BORDER_COLOR: [f32; 4] = [0.5, 0.8, 1., 1.];
 const TEXT_COLOR: [f32; 4] = [1., 1., 1., 1.];
-/// What is behind the keys of a binding.
-const KEY_BACKGROUND: [f32; 4] = [0.183, 0.183, 0.183, 1.];
+/// The cap behind the keys of a binding.
+const KEY_BACKGROUND: [f32; 4] = [0.2, 0.2, 0.2, 1.];
 
 /// Where the list is among the windows on screen: over everything, the menu bar and the
 /// overview included, as niri draws it last.
@@ -47,11 +60,6 @@ const LEVEL: NSWindowLevel = 25;
 fn ns_color(color: [f32; 4]) -> Retained<NSColor> {
     let [r, g, b, a] = color;
     NSColor::colorWithSRGBRed_green_blue_alpha(r.into(), g.into(), b.into(), a.into())
-}
-
-fn cg_color(color: [f32; 4]) -> CFRetained<CGColor> {
-    let [r, g, b, a] = color;
-    CGColor::new_srgb(r.into(), g.into(), b.into(), a.into())
 }
 
 fn font(mtm: MainThreadMarker, span: &TextSpan) -> Retained<NSFont> {
@@ -113,6 +121,9 @@ fn attributed(mtm: MainThreadMarker, spans: &[TextSpan]) -> Retained<NSMutableAt
 struct Laid {
     /// How large the whole list is, in points.
     size: CGSize,
+    frame: HotkeyOverlayFrame,
+    /// The caps the keys are drawn on.
+    caps: Vec<Rect>,
     /// Each piece of text and where its top left corner goes.
     texts: Vec<(Retained<NSMutableAttributedString>, CGPoint)>,
 }
@@ -121,6 +132,9 @@ impl Laid {
     /// Arranges `overlay` as niri does: the title centered at the top, then one line per
     /// binding, with the actions starting where the longest keys end.
     fn new(mtm: MainThreadMarker, overlay: &HotkeyOverlay) -> Self {
+        let frame = overlay.frame;
+        let inset = frame.width.max(0.) + PADDING;
+
         let title = attributed(
             mtm,
             &[TextSpan {
@@ -138,9 +152,8 @@ impl Laid {
                 let key = attributed(
                     mtm,
                     &[TextSpan {
-                        text: format!(" {} ", row.key),
+                        text: row.key.clone(),
                         monospace: true,
-                        background: Some(KEY_BACKGROUND),
                         ..Default::default()
                     }],
                 );
@@ -151,30 +164,46 @@ impl Laid {
             .collect();
 
         let widest = |sizes: &mut dyn Iterator<Item = f64>| sizes.fold(0., f64::max).ceil();
-        let key_width = widest(&mut rows.iter().map(|(_, size, _, _)| size.width));
+        let key_width =
+            widest(&mut rows.iter().map(|(_, size, _, _)| size.width)) + KEY_PADDING.0 * 2.;
         let action_width = widest(&mut rows.iter().map(|(_, _, _, size)| size.width));
         let width =
-            (key_width + PADDING + action_width).max(title_size.width.ceil()) + PADDING * 2.;
+            (key_width + COLUMN_GAP + action_width).max(title_size.width.ceil()) + inset * 2.;
 
+        let mut caps = Vec::with_capacity(rows.len());
         let mut texts = Vec::with_capacity(1 + rows.len() * 2);
         texts.push((
             title,
-            CGPoint::new(((width - title_size.width) / 2.).floor(), PADDING),
+            CGPoint::new(((width - title_size.width) / 2.).floor(), inset),
         ));
 
-        let mut y = PADDING + title_size.height.ceil() + PADDING;
+        let mut y = inset + title_size.height.ceil() + TITLE_GAP;
         for (idx, (key, key_size, action, action_size)) in rows.into_iter().enumerate() {
             if idx > 0 {
                 y += LINE_INTERVAL;
             }
-            texts.push((key, CGPoint::new(PADDING, y)));
-            texts.push((action, CGPoint::new(PADDING + key_width + PADDING, y)));
-            y += key_size.height.max(action_size.height).ceil();
+            let height = key_size.height.max(action_size.height).ceil() + KEY_PADDING.1 * 2.;
+            // Both pieces of text in the middle of the line, on whole points.
+            let middle = |text_height: f64| y + ((height - text_height) / 2.).floor();
+
+            let cap_width = key_size.width.ceil() + KEY_PADDING.0 * 2.;
+            caps.push(Rect::new(inset, y, cap_width, height));
+            texts.push((
+                key,
+                CGPoint::new(inset + KEY_PADDING.0, middle(key_size.height)),
+            ));
+            texts.push((
+                action,
+                CGPoint::new(inset + key_width + COLUMN_GAP, middle(action_size.height)),
+            ));
+            y += height;
         }
-        let height = y + PADDING;
+        let height = y + inset;
 
         Self {
             size: CGSize::new(width, height),
+            frame,
+            caps,
             texts,
         }
     }
@@ -204,9 +233,19 @@ impl Laid {
         CGContext::translate_ctm(Some(&context), 0., height as f64);
         CGContext::scale_ctm(Some(&context), scale, -scale);
 
-        let bounds = CGRect::new(CGPoint::new(0., 0.), self.size);
-        CGContext::set_fill_color_with_color(Some(&context), Some(&cg_color(BACKGROUND)));
-        CGContext::fill_rect(Some(&context), bounds);
+        let bounds = Rect::new(0., 0., self.size.width, self.size.height);
+        let filled = |rect: Rect, radius: f64, color: [f32; 4]| {
+            let path = CGMutablePath::new();
+            add_rounded_rect(&path, rect, [radius; 4]);
+            CGContext::add_path(Some(&context), Some(&path));
+            CGContext::set_fill_color_with_color(Some(&context), Some(&cg_color(color)));
+            CGContext::fill_path(Some(&context));
+        };
+        let radius = self.frame.corner_radius.max(0.);
+        filled(bounds, radius, BACKGROUND);
+        for cap in &self.caps {
+            filled(*cap, KEY_RADIUS, KEY_BACKGROUND);
+        }
 
         // Text is drawn through AppKit, which draws into whichever context is current. It
         // is told the context is flipped, so that the text comes out the right way up.
@@ -218,11 +257,20 @@ impl Laid {
         }
         NSGraphicsContext::restoreGraphicsState_class();
 
-        // A line along the very edge, half of which falls outside and is not drawn. niri
-        // keeps its width a whole even number of pixels so that the edge is sharp.
-        let border = (BORDER / 2. * scale).round() * 2. / scale;
-        CGContext::set_stroke_color_with_color(Some(&context), Some(&cg_color(BORDER_COLOR)));
-        CGContext::stroke_rect_with_width(Some(&context), bounds, border);
+        // The line around it all, drawn as the ring around a window is.
+        if self.frame.width > 0. {
+            let line = Outline {
+                rect: bounds,
+                line_width: self.frame.width,
+                corner_radius: [radius; 4],
+                color: self.frame.color,
+                gradient: self.frame.gradient.map(|gradient| Gradient {
+                    area: bounds,
+                    ..gradient
+                }),
+            };
+            fill(&context, &line);
+        }
 
         (context, width, height)
     }

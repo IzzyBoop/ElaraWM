@@ -29,6 +29,8 @@ Wayland/Smithay backend.
   cut off at the menu bar. Without it they are simply gone until they can be there.
 - The hotkey overlay is niri's `src/ui/hotkey_overlay.rs` in the `elara` crate, deciding
   what to list; `elara-macos` draws the list with AppKit in a small window on each display.
+  Its look is ElaraWM's own, not niri's plain box: window-like round corners, and around it
+  the active focus ring's line (width, color or gradient) from the config.
   Pango markup in titles is read by `crates/elara/src/ui/markup.rs`, which knows a subset.
 - One binary, run either with `cargo run -p elara` or from `ElaraWM.app`, which
   `tools/bundle-app.sh` builds around it. Keep macOS-facing code in `elara-macos`.

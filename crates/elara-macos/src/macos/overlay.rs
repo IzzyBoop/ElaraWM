@@ -355,14 +355,14 @@ fn even_odd_shape() -> Retained<CAShapeLayer> {
     shape
 }
 
-fn cg_color(color: [f32; 4]) -> CFRetained<CGColor> {
+pub(super) fn cg_color(color: [f32; 4]) -> CFRetained<CGColor> {
     let [r, g, b, a] = color;
     CGColor::new_srgb(r.into(), g.into(), b.into(), a.into())
 }
 
 /// Adds a rectangle with rounded corners to `path`. `radii` are for the top-left, top-right,
 /// bottom-right and bottom-left corners.
-fn add_rounded_rect(path: &CGMutablePath, rect: Rect, radii: [f64; 4]) {
+pub(super) fn add_rounded_rect(path: &CGMutablePath, rect: Rect, radii: [f64; 4]) {
     if rect.w <= 0. || rect.h <= 0. {
         return;
     }
@@ -404,6 +404,47 @@ pub(super) fn path(outline: &Outline) -> CFRetained<CGMutablePath> {
     path
 }
 
+/// Fills `outline` into `context`, whose coordinates are those of the outline.
+pub(super) fn fill(context: &CGContext, outline: &Outline) {
+    CGContext::add_path(Some(context), Some(&path(outline)));
+    let Some(gradient) = outline.gradient else {
+        CGContext::set_fill_color_with_color(Some(context), Some(&cg_color(outline.color)));
+        CGContext::eo_fill_path(Some(context));
+        return;
+    };
+
+    let components: Vec<f64> = gradient
+        .stops(outline.color)
+        .into_iter()
+        .flatten()
+        .map(f64::from)
+        .collect();
+    // SAFETY: the name is a valid static; there are four components per color, and no
+    // locations means evenly spaced.
+    let fill = unsafe {
+        let srgb = CGColorSpace::with_name(Some(kCGColorSpaceSRGB));
+        CGGradient::with_color_components(
+            srgb.as_deref(),
+            components.as_ptr(),
+            std::ptr::null(),
+            components.len() / 4,
+        )
+    };
+    let (start, end) = gradient.line();
+    // Only inside the shape, and all of it: the first and last color go on past the ends.
+    CGContext::save_g_state(Some(context));
+    CGContext::eo_clip(Some(context));
+    CGContext::draw_linear_gradient(
+        Some(context),
+        fill.as_deref(),
+        CGPoint::new(start.x, start.y),
+        CGPoint::new(end.x, end.y),
+        CGGradientDrawingOptions::DrawsBeforeStartLocation
+            | CGGradientDrawingOptions::DrawsAfterEndLocation,
+    );
+    CGContext::restore_g_state(Some(context));
+}
+
 /// Draws `outlines` into an image of `size` points at `scale` pixels per point, without
 /// putting anything on screen. `outlines` are relative to the top left of the image.
 ///
@@ -438,43 +479,7 @@ pub fn rasterize(outlines: &[Outline], size: crate::Size, scale: f64) -> (usize,
     CGContext::scale_ctm(Some(&context), scale, -scale);
 
     for outline in outlines {
-        CGContext::add_path(Some(&context), Some(&path(outline)));
-        let Some(gradient) = outline.gradient else {
-            CGContext::set_fill_color_with_color(Some(&context), Some(&cg_color(outline.color)));
-            CGContext::eo_fill_path(Some(&context));
-            continue;
-        };
-
-        let components: Vec<f64> = gradient
-            .stops(outline.color)
-            .into_iter()
-            .flatten()
-            .map(f64::from)
-            .collect();
-        // SAFETY: the name is a valid static; there are four components per color, and no
-        // locations means evenly spaced.
-        let fill = unsafe {
-            let srgb = CGColorSpace::with_name(Some(kCGColorSpaceSRGB));
-            CGGradient::with_color_components(
-                srgb.as_deref(),
-                components.as_ptr(),
-                std::ptr::null(),
-                components.len() / 4,
-            )
-        };
-        let (start, end) = gradient.line();
-        // Only inside the shape, and all of it: the first and last color go on past the ends.
-        CGContext::save_g_state(Some(&context));
-        CGContext::eo_clip(Some(&context));
-        CGContext::draw_linear_gradient(
-            Some(&context),
-            fill.as_deref(),
-            CGPoint::new(start.x, start.y),
-            CGPoint::new(end.x, end.y),
-            CGGradientDrawingOptions::DrawsBeforeStartLocation
-                | CGGradientDrawingOptions::DrawsAfterEndLocation,
-        );
-        CGContext::restore_g_state(Some(&context));
+        fill(&context, outline);
     }
 
     drop(context);

@@ -258,6 +258,34 @@ pub enum OverviewInput {
 pub struct HotkeyOverlay {
     pub title: String,
     pub rows: Vec<HotkeyOverlayRow>,
+    pub frame: HotkeyOverlayFrame,
+}
+
+/// The line around the [`HotkeyOverlay`], which is drawn like the ring around the focused
+/// window so that the list looks like it belongs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HotkeyOverlayFrame {
+    /// How wide the line is.
+    pub width: f64,
+    /// How round the corners of the list are.
+    pub corner_radius: f64,
+    /// Red, green, blue and opacity, as in [`Outline`].
+    pub color: [f32; 4],
+    /// If set, the line is a gradient that starts with `color`. Its area is not looked at:
+    /// the gradient spans the list.
+    pub gradient: Option<Gradient>,
+}
+
+impl Default for HotkeyOverlayFrame {
+    /// niri's default focus ring, around corners as round as a window's are taken to be.
+    fn default() -> Self {
+        Self {
+            width: 4.,
+            corner_radius: 16.,
+            color: [127. / 255., 200. / 255., 1., 1.],
+            gradient: None,
+        }
+    }
 }
 
 /// One binding in the [`HotkeyOverlay`].

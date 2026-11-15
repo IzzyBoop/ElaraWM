@@ -225,3 +225,28 @@ fn it_goes_when_elara_stops() {
     state.release_windows();
     assert_eq!(state.backend().hotkey_overlay(), None);
 }
+
+#[test]
+fn the_line_around_it_is_the_focus_rings() {
+    // niri's default ring: 4 wide, light blue, around corners as round as a window's.
+    let state = state(default_config());
+    let frame = shown(&state).frame;
+    assert_eq!(frame.width, 4.);
+    assert_eq!(frame.corner_radius, 16.);
+    assert_eq!(frame.color, [127. / 255., 200. / 255., 1., 1.]);
+    assert_eq!(frame.gradient, None);
+
+    let state = self::state(config(
+        r##"layout { focus-ring { width 6; active-gradient from="#ff0000" to="#0000ff" angle=45; }; }"##,
+    ));
+    let frame = shown(&state).frame;
+    assert_eq!(frame.width, 6.);
+    assert_eq!(frame.color, [1., 0., 0., 1.]);
+    assert_eq!(frame.gradient.expect("a gradient").to, [0., 0., 1., 1.]);
+}
+
+#[test]
+fn a_ring_that_is_off_still_leaves_the_list_an_edge() {
+    let state = state(config("layout { focus-ring { off; }; }"));
+    assert_eq!(shown(&state).frame.width, 4.);
+}

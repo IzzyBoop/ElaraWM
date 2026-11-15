@@ -16,7 +16,7 @@ use elara_macos::{
     Overview, OverviewDisplay, OverviewItem, OverviewShadow, OverviewWindow, OverviewWorkspace,
     Point as GlobalPoint, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
 };
-use niri_config::{Config, GradientColorSpace, OutputName};
+use niri_config::{Config, GradientColorSpace, GradientInterpolation, OutputName};
 use niri_ipc::{PositionChange, SizeChange};
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
@@ -1634,7 +1634,7 @@ fn scaled_outline(
     let (area, geometry) = (parameters.gradient_area, parameters.geometry);
     let gradient = (from != to && geometry.size.w > 0. && geometry.size.h > 0.).then(|| {
         let (sx, sy) = (rect.w / geometry.size.w, rect.h / geometry.size.h);
-        let format = parameters.gradient_format;
+        let (space, hue) = color_space(parameters.gradient_format);
         Gradient {
             to: [to.r, to.g, to.b, to.a * parameters.alpha],
             area: Rect::new(
@@ -1644,18 +1644,8 @@ fn scaled_outline(
                 area.size.h * sy,
             ),
             angle: f64::from(parameters.angle),
-            space: match format.color_space {
-                GradientColorSpace::Srgb => ColorSpace::Srgb,
-                GradientColorSpace::SrgbLinear => ColorSpace::SrgbLinear,
-                GradientColorSpace::Oklab => ColorSpace::Oklab,
-                GradientColorSpace::Oklch => ColorSpace::Oklch,
-            },
-            hue: match format.hue_interpolation {
-                niri_config::HueInterpolation::Shorter => HueInterpolation::Shorter,
-                niri_config::HueInterpolation::Longer => HueInterpolation::Longer,
-                niri_config::HueInterpolation::Increasing => HueInterpolation::Increasing,
-                niri_config::HueInterpolation::Decreasing => HueInterpolation::Decreasing,
-            },
+            space,
+            hue,
         }
     });
 
@@ -1672,6 +1662,23 @@ fn scaled_outline(
         color: [from.r, from.g, from.b, from.a * parameters.alpha],
         gradient,
     }
+}
+
+/// Says in the backend's terms how the colors of one of niri's gradients are blended.
+pub(crate) fn color_space(format: GradientInterpolation) -> (ColorSpace, HueInterpolation) {
+    let space = match format.color_space {
+        GradientColorSpace::Srgb => ColorSpace::Srgb,
+        GradientColorSpace::SrgbLinear => ColorSpace::SrgbLinear,
+        GradientColorSpace::Oklab => ColorSpace::Oklab,
+        GradientColorSpace::Oklch => ColorSpace::Oklch,
+    };
+    let hue = match format.hue_interpolation {
+        niri_config::HueInterpolation::Shorter => HueInterpolation::Shorter,
+        niri_config::HueInterpolation::Longer => HueInterpolation::Longer,
+        niri_config::HueInterpolation::Increasing => HueInterpolation::Increasing,
+        niri_config::HueInterpolation::Decreasing => HueInterpolation::Decreasing,
+    };
+    (space, hue)
 }
 
 /// Returns what the overview draws for one tile, bottom to top: its border and focus ring,
