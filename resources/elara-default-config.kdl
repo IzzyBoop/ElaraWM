@@ -380,15 +380,15 @@ window-rule {
     clip-to-geometry true
 }
 
-// ElaraWM: the overview shows each window as a card with its application's icon and
-// its title. Uncomment this to have it show pictures of the windows instead. That
-// needs the Screen Recording permission: macOS asks the first time the overview is
-// opened, and ElaraWM has to be started again once the permission is granted.
-// Without it, the cards stay. With it, workspaces that slide in from above the
-// menu bar show pictures of their windows on the way, too.
-// overview {
-//     window-thumbnails
-// }
+// ElaraWM: this has the overview show pictures of the windows, and has workspaces
+// that slide in from above the menu bar show pictures of their windows on the way.
+// That needs the Screen Recording permission: macOS asks the first time the overview
+// is opened, and ElaraWM has to be started again once the permission is granted.
+// Without the permission, or with this commented out, the overview shows each window
+// as a card with its application's icon and its title.
+overview {
+    window-thumbnails
+}
 
 binds {
     // Keys consist of modifiers separated by + signs, followed by an XKB key name
