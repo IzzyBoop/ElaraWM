@@ -27,15 +27,15 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{NSObjectProtocol, NSString};
 use objc2_quartz_core::{
-    kCAAlignmentCenter, kCAFillRuleEvenOdd, kCAGravityResizeAspect, kCATruncationEnd, CALayer,
-    CAShapeLayer, CATextLayer, CATransaction,
+    kCAAlignmentCenter, kCAGravityResizeAspect, kCATruncationEnd, CALayer, CATextLayer,
+    CATransaction,
 };
 
-use super::overlay::{appkit_rect, color, path};
+use super::overlay::{appkit_rect, OutlineLayer};
 use crate::{
-    DisplayId, DisplayInfo, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, Outline,
-    Overview, OverviewDisplay, OverviewInput, OverviewItem, OverviewWindow, Point, Rect,
-    ScrollEvent, ScrollPhase, WindowId,
+    DisplayId, DisplayInfo, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, Overview,
+    OverviewDisplay, OverviewInput, OverviewItem, OverviewWindow, Point, Rect, ScrollEvent,
+    ScrollPhase, WindowId,
 };
 
 /// Where the overview is among the windows on screen: over every ordinary window, floating
@@ -374,7 +374,7 @@ struct Scene {
     /// Covers the display and is filled with the backdrop.
     root: Retained<CALayer>,
     workspaces: Vec<Retained<CALayer>>,
-    shapes: Vec<Retained<CAShapeLayer>>,
+    shapes: Vec<OutlineLayer>,
     cards: HashMap<WindowId, Card>,
 }
 
@@ -452,19 +452,16 @@ impl Scene {
             .filter(|item| matches!(item, OverviewItem::Shape(_)))
             .count();
         while self.shapes.len() > shape_count {
-            self.shapes.pop().unwrap().removeFromSuperlayer();
+            self.shapes.pop().unwrap().layer().removeFromSuperlayer();
         }
         while self.shapes.len() < shape_count {
-            let shape = CAShapeLayer::new();
-            // SAFETY: the fill rule is a valid static.
-            shape.setFillRule(unsafe { kCAFillRuleEvenOdd });
-            // Paths are laid out from the top left, like everything else in this crate.
-            shape.setGeometryFlipped(true);
-            self.root.addSublayer(&shape);
+            // Shapes are laid out from the top left, like everything else in this crate.
+            let shape = OutlineLayer::new(true);
+            self.root.addSublayer(shape.layer());
             self.shapes.push(shape);
         }
 
-        let mut shapes = self.shapes.iter();
+        let mut shapes = self.shapes.iter_mut();
         let mut present = Vec::new();
         for (idx, item) in items.iter().enumerate() {
             // Layers of one parent are stacked by this, whatever order they were added in.
@@ -474,20 +471,9 @@ impl Scene {
                     let Some(shape) = shapes.next() else {
                         continue;
                     };
-                    let outline = Outline {
-                        rect: Rect::new(
-                            outline.rect.x - display.frame.x,
-                            outline.rect.y - display.frame.y,
-                            outline.rect.w,
-                            outline.rect.h,
-                        ),
-                        ..*outline
-                    };
-                    shape.setFrame(bounds);
-                    shape.setContentsScale(display.scale);
-                    shape.setPath(Some(&path(&outline)));
-                    shape.setFillColor(Some(&color(&outline)));
-                    shape.setZPosition(z);
+                    let outline = outline.translated(-display.frame.x, -display.frame.y);
+                    shape.set(&outline, bounds, display.scale);
+                    shape.layer().setZPosition(z);
                 }
                 OverviewItem::Window(window) => {
                     let card = self.cards.entry(window.id).or_insert_with(|| {

@@ -115,8 +115,9 @@ changes. If an edit has an error, the error is printed and the previous config s
   and `MouseForward`, as in `Mod+MouseMiddle { close-window; }`.
 - The focus ring, borders, the tab indicator and the insert hint come from the `layout`
   section, as in niri. Clicking a tab switches to its window. They
-  are drawn in a transparent window on top of the others, in the gaps between windows. A
-  gradient is drawn as its first color. macOS does not say how round a window's corners are,
+  are drawn in a transparent window on top of the others, in the gaps between windows.
+  Gradients work as in niri: `angle`, `relative-to` and the color spaces of `in`. macOS
+  does not say how round a window's corners are,
   so they are taken to have a radius of 16; set `geometry-corner-radius` in a window rule if
   the ring does not hug your windows.
 - `Mod+O` opens the overview, as in niri: the workspaces of each display, zoomed out, with

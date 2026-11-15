@@ -8,6 +8,7 @@
 use std::ffi::c_void;
 
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSNormalWindowLevel,
@@ -15,10 +16,13 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGBitmapContextGetData, CGColor, CGColorSpace, CGContext,
-    CGImageAlphaInfo, CGMutablePath,
+    kCGColorSpaceSRGB, CGBitmapContextCreate, CGBitmapContextGetData, CGColor, CGColorSpace,
+    CGContext, CGGradient, CGGradientDrawingOptions, CGImageAlphaInfo, CGMutablePath,
 };
-use objc2_quartz_core::{kCAFillRuleEvenOdd, CALayer, CAShapeLayer, CATransaction};
+use objc2_foundation::NSArray;
+use objc2_quartz_core::{
+    kCAFillRuleEvenOdd, CAGradientLayer, CALayer, CAShapeLayer, CATransaction,
+};
 
 use crate::{DisplayId, DisplayInfo, Outline, Rect};
 
@@ -31,7 +35,7 @@ struct Surface {
     /// Holds one sublayer per outline. Flipped, so that its sublayers are laid out from the
     /// top left like everything else in this crate.
     container: Retained<CALayer>,
-    shapes: Vec<Retained<CAShapeLayer>>,
+    shapes: Vec<OutlineLayer>,
     /// What is drawn now, in the container's coordinates.
     outlines: Vec<Outline>,
 }
@@ -85,15 +89,7 @@ impl Overlay {
             let local: Vec<Outline> = outlines
                 .iter()
                 .filter(|outline| outline.rect.intersects(&display.frame))
-                .map(|outline| Outline {
-                    rect: Rect::new(
-                        outline.rect.x - display.frame.x,
-                        outline.rect.y - display.frame.y,
-                        outline.rect.w,
-                        outline.rect.h,
-                    ),
-                    ..*outline
-                })
+                .map(|outline| outline.translated(-display.frame.x, -display.frame.y))
                 .collect();
 
             let idx = self
@@ -237,22 +233,18 @@ impl Surface {
             CGSize::new(display.frame.w, display.frame.h),
         );
         while self.shapes.len() > outlines.len() {
-            self.shapes.pop().unwrap().removeFromSuperlayer();
+            self.shapes.pop().unwrap().layer().removeFromSuperlayer();
         }
         while self.shapes.len() < outlines.len() {
-            let shape = CAShapeLayer::new();
-            // SAFETY: the fill rule is a valid static.
-            shape.setFillRule(unsafe { kCAFillRuleEvenOdd });
-            self.container.addSublayer(&shape);
+            // The container is flipped already.
+            let shape = OutlineLayer::new(false);
+            self.container.addSublayer(shape.layer());
             self.shapes.push(shape);
         }
-        for (idx, (shape, outline)) in self.shapes.iter().zip(&outlines).enumerate() {
-            shape.setFrame(bounds);
-            shape.setContentsScale(display.scale);
-            // A shape whose outline did not change keeps its path.
+        for (idx, (shape, outline)) in self.shapes.iter_mut().zip(&outlines).enumerate() {
+            // A shape whose outline did not change stays as it is.
             if self.outlines.get(idx) != Some(outline) {
-                shape.setPath(Some(&path(outline)));
-                shape.setFillColor(Some(&color(outline)));
+                shape.set(outline, bounds, display.scale);
             }
         }
         self.outlines = outlines;
@@ -262,8 +254,109 @@ impl Surface {
     }
 }
 
-pub(super) fn color(outline: &Outline) -> CFRetained<CGColor> {
-    let [r, g, b, a] = outline.color;
+/// The layers that draw one outline.
+///
+/// A shape of one color is a shape layer. A gradient is a gradient layer the size of the
+/// display, of which a second shape layer lets only the shape show.
+pub(super) struct OutlineLayer {
+    /// Holds the others, so that the outline keeps its place among its siblings whichever
+    /// of them it uses.
+    layer: Retained<CALayer>,
+    solid: Retained<CAShapeLayer>,
+    gradient: Option<(Retained<CAGradientLayer>, Retained<CAShapeLayer>)>,
+}
+
+impl OutlineLayer {
+    /// `flipped` says whether to lay the shape out from the top left; pass `false` where a
+    /// layer above this one does that already.
+    pub(super) fn new(flipped: bool) -> Self {
+        let layer = CALayer::new();
+        layer.setGeometryFlipped(flipped);
+        let solid = even_odd_shape();
+        layer.addSublayer(&solid);
+        Self {
+            layer,
+            solid,
+            gradient: None,
+        }
+    }
+
+    /// The layer to put in the tree.
+    pub(super) fn layer(&self) -> &CALayer {
+        &self.layer
+    }
+
+    /// Draws `outline`, which is relative to the top left of `bounds`, the area of the
+    /// display.
+    pub(super) fn set(&mut self, outline: &Outline, bounds: CGRect, scale: f64) {
+        self.layer.setFrame(bounds);
+        self.solid.setFrame(bounds);
+        self.solid.setContentsScale(scale);
+        let path = path(outline);
+
+        let Some(gradient) = outline.gradient else {
+            self.solid.setPath(Some(&path));
+            self.solid.setFillColor(Some(&cg_color(outline.color)));
+            if let Some((layer, _)) = &self.gradient {
+                layer.setHidden(true);
+            }
+            return;
+        };
+
+        self.solid.setPath(None);
+        let (layer, mask) = self.gradient.get_or_insert_with(|| {
+            let layer = CAGradientLayer::new();
+            let mask = even_odd_shape();
+            // What shows of the gradient is what the mask covers, in any opaque color.
+            mask.setFillColor(Some(&cg_color([0., 0., 0., 1.])));
+            // SAFETY: the mask is a new layer that has no parent, as a mask must be.
+            unsafe { layer.setMask(Some(&mask)) };
+            self.layer.addSublayer(&layer);
+            (layer, mask)
+        });
+        layer.setHidden(false);
+        layer.setFrame(bounds);
+        mask.setFrame(bounds);
+        mask.setContentsScale(scale);
+        mask.setPath(Some(&path));
+
+        let colors: Vec<CFRetained<CGColor>> = gradient
+            .stops(outline.color)
+            .into_iter()
+            .map(cg_color)
+            .collect();
+        // SAFETY: Core Foundation objects are Objective-C objects, and colors are what a
+        // gradient layer takes. The array retains them.
+        unsafe {
+            let objects: Vec<&AnyObject> = colors
+                .iter()
+                .map(|color| &*CFRetained::as_ptr(color).as_ptr().cast::<AnyObject>())
+                .collect();
+            layer.setColors(Some(&NSArray::from_slice(&objects)));
+        }
+        // With no locations given the colors are spaced evenly, as the stops are. The ends
+        // are given as fractions of the layer's size, and may lie outside it.
+        let (start, end) = gradient.line();
+        let unit = |point: crate::Point| {
+            CGPoint::new(
+                point.x / bounds.size.width.max(1.),
+                point.y / bounds.size.height.max(1.),
+            )
+        };
+        layer.setStartPoint(unit(start));
+        layer.setEndPoint(unit(end));
+    }
+}
+
+fn even_odd_shape() -> Retained<CAShapeLayer> {
+    let shape = CAShapeLayer::new();
+    // SAFETY: the fill rule is a valid static.
+    shape.setFillRule(unsafe { kCAFillRuleEvenOdd });
+    shape
+}
+
+fn cg_color(color: [f32; 4]) -> CFRetained<CGColor> {
+    let [r, g, b, a] = color;
     CGColor::new_srgb(r.into(), g.into(), b.into(), a.into())
 }
 
@@ -345,9 +438,43 @@ pub fn rasterize(outlines: &[Outline], size: crate::Size, scale: f64) -> (usize,
     CGContext::scale_ctm(Some(&context), scale, -scale);
 
     for outline in outlines {
-        CGContext::set_fill_color_with_color(Some(&context), Some(&color(outline)));
         CGContext::add_path(Some(&context), Some(&path(outline)));
-        CGContext::eo_fill_path(Some(&context));
+        let Some(gradient) = outline.gradient else {
+            CGContext::set_fill_color_with_color(Some(&context), Some(&cg_color(outline.color)));
+            CGContext::eo_fill_path(Some(&context));
+            continue;
+        };
+
+        let components: Vec<f64> = gradient
+            .stops(outline.color)
+            .into_iter()
+            .flatten()
+            .map(f64::from)
+            .collect();
+        // SAFETY: the name is a valid static; there are four components per color, and no
+        // locations means evenly spaced.
+        let fill = unsafe {
+            let srgb = CGColorSpace::with_name(Some(kCGColorSpaceSRGB));
+            CGGradient::with_color_components(
+                srgb.as_deref(),
+                components.as_ptr(),
+                std::ptr::null(),
+                components.len() / 4,
+            )
+        };
+        let (start, end) = gradient.line();
+        // Only inside the shape, and all of it: the first and last color go on past the ends.
+        CGContext::save_g_state(Some(&context));
+        CGContext::eo_clip(Some(&context));
+        CGContext::draw_linear_gradient(
+            Some(&context),
+            fill.as_deref(),
+            CGPoint::new(start.x, start.y),
+            CGPoint::new(end.x, end.y),
+            CGGradientDrawingOptions::DrawsBeforeStartLocation
+                | CGGradientDrawingOptions::DrawsAfterEndLocation,
+        );
+        CGContext::restore_g_state(Some(&context));
     }
 
     drop(context);
