@@ -57,6 +57,10 @@ trap 'rm -rf "$work"' EXIT
 app="$work/ElaraWM.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$root/target/release/elara" "$app/Contents/MacOS/elara"
+# The debugging entries of the symbol table name every object file by its full path in the
+# build directory, which the remapping above does not reach. Function names stay, so a
+# backtrace in the log still says where it was.
+strip -S "$app/Contents/MacOS/elara"
 
 # The icon. With Xcode installed, the layered `Elara.icon` is compiled, which is what gives
 # the icon its dark, tinted and clear appearances. `actool` writes an asset catalog for
