@@ -1,6 +1,6 @@
 //! The window manager: niri's layout on one side, the system's windows on the other.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
@@ -91,6 +91,12 @@ pub struct State<B: WindowBackend> {
     gesture: Option<Gesture>,
     /// The window being moved or resized with the mouse, if any.
     pub(crate) pointer_grab: Option<PointerGrab>,
+    /// Whether the left mouse button is down on something that is not ElaraWM's: the press
+    /// went to an application or to the system, which may be dragging a window with it.
+    system_press: bool,
+    /// Windows that moved or changed size on their own during that press: the user is
+    /// dragging them by the title bar or an edge.
+    user_dragged: HashSet<WindowId>,
     /// The window whose edges are being dragged, and which edges. Kept until the window has
     /// been given its last size, which is after the drag ends.
     pub(crate) resizing: Option<(WindowId, ResizeEdge)>,
@@ -138,6 +144,8 @@ impl<B: WindowBackend> State<B> {
             animate: false,
             gesture: None,
             pointer_grab: None,
+            system_press: false,
+            user_dragged: HashSet::new(),
             resizing: None,
             focus_history: Vec::new(),
             quit_requested: false,
@@ -645,6 +653,9 @@ impl<B: WindowBackend> State<B> {
             now = ?frame,
             "window changed frame on its own"
         );
+        if self.system_press {
+            self.user_dragged.insert(id);
+        }
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
         if size_changed && is_floating {
@@ -686,6 +697,18 @@ impl<B: WindowBackend> State<B> {
         if changed {
             self.layout.update_window(&id, None);
         }
+    }
+
+    /// Tells the state that the left mouse button went down or came up on something that
+    /// is not ElaraWM's to handle.
+    ///
+    /// While it is down the system may be dragging a window, by its title bar or an edge.
+    /// The system moves the window with the pointer and reports where it is afterwards, a
+    /// few times a second, so anything drawn around it would trail behind. Nothing is drawn
+    /// around such a window until the button is released.
+    pub fn system_press(&mut self, down: bool) {
+        self.system_press = down;
+        self.user_dragged.clear();
     }
 
     // Applying the layout.
@@ -1140,6 +1163,10 @@ impl<B: WindowBackend> State<B> {
                         continue;
                     }
                     let window = tile.window();
+                    // Not around a window the system is dragging: see `system_press()`.
+                    if self.user_dragged.contains(&window.window_id()) {
+                        continue;
+                    }
                     let window_loc = tile.window_loc();
                     let loc = ws_geo.loc + tile_pos + window_loc;
                     let expected = (origin.x + loc.x.round(), origin.y + loc.y.round());

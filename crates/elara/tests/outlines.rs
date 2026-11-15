@@ -350,3 +350,44 @@ fn a_hidden_tab_that_picks_its_own_height_stays_out_of_sight() {
     assert_eq!(frame(&state, b).w, frame(&state, a).w);
     assert_eq!(frame(&state, b).x, SCREEN.max_x() - 1.);
 }
+
+// Windows the system is dragging.
+
+#[test]
+fn nothing_is_drawn_around_a_window_while_the_system_drags_it() {
+    let mut state = State::new(MockBackend::with_laptop_display(), default_config());
+    let a = open(&mut state, "a");
+    state.do_action(Action::ToggleWindowFloating);
+    state.tick();
+    let ring = |state: &State<MockBackend>| {
+        let around = around(frame(state, a), RING_WIDTH);
+        outlines(state).iter().any(|outline| outline.rect == around)
+    };
+    assert!(ring(&state));
+
+    // The user takes the window by its title bar. The system moves it and says so after the
+    // fact, so the ring would trail behind it; it is not drawn at all.
+    state.system_press(true);
+    state.tick();
+    assert!(ring(&state), "a press alone moves nothing");
+    for step in 1..=3 {
+        let mut dragged = frame(&state, a);
+        dragged.x += 40. * f64::from(step);
+        state.backend_mut().user_set_frame(a, dragged);
+        state.tick();
+        assert_eq!(frame(&state, a), dragged);
+        assert!(outlines(&state).is_empty(), "{:?}", outlines(&state));
+    }
+
+    // Let go, and the ring is back, around the window where it was dropped.
+    state.system_press(false);
+    state.tick();
+    assert!(ring(&state));
+
+    // A window that moves with no button down is not being dragged.
+    let mut moved = frame(&state, a);
+    moved.y += 30.;
+    state.backend_mut().user_set_frame(a, moved);
+    state.tick();
+    assert!(ring(&state));
+}
