@@ -29,6 +29,7 @@ System Integrity Protection stays on and no private APIs are used.
 - [What is different from niri](#what-is-different-from-niri)
 - [Quirks and known issues](#quirks-and-known-issues)
 - [Troubleshooting](#troubleshooting)
+- [Privacy](#privacy)
 - [Not there yet](#not-there-yet)
 - [Building from source](#building-from-source)
 - [License](#license)
@@ -360,7 +361,18 @@ It prints whether the permission is granted, the displays, and every window with
 application's bundle identifier, which is what `app-id` in window rules matches.
 
 **Reporting a problem.** Include the log ("Show Log" in the menu), the macOS version and
-the application whose window misbehaved.
+the application whose window misbehaved. Read the log before you post it: it names your
+home folder, and so your user name, in the path of the config file. It never has window
+titles or text you typed. With `RUST_LOG=elara=debug` it also lists the applications that
+have windows open.
+
+## Privacy
+
+ElaraWM makes no network connections and collects nothing. It reads the positions, sizes
+and titles of your windows to arrange them and to label the overview, and with
+`window-thumbnails` on it takes pictures of them; all of that stays in its memory and is
+gone when it quits. What it writes to disk is its config, which you own, and its log,
+which only your account can read.
 
 ## Not there yet
 

@@ -293,7 +293,17 @@ impl<B: WindowBackend> State<B> {
     }
 
     fn handle_event(&mut self, event: Event) {
-        trace!(?event, "handling event");
+        // Window titles are kept out of the log at every level: they hold the names of
+        // documents and of pages being read, and logs get passed around.
+        match &event {
+            Event::WindowOpened(info) => {
+                trace!(id = ?info.id, app_id = ?info.app_id, "handling event: window opened");
+            }
+            Event::WindowTitleChanged(id, _) => {
+                trace!(?id, "handling event: window title changed");
+            }
+            _ => trace!(?event, "handling event"),
+        }
         match event {
             Event::WindowOpened(info) => self.add_window(info),
             Event::WindowClosed(id) => {
