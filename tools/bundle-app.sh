@@ -9,6 +9,7 @@
 #                        ad hoc: macOS then sees every build as a different application,
 #                        and the Accessibility permission has to be granted again after
 #                        each one. A real identity, even a self-signed one, keeps it.
+#   ELARA_FLAT_ICON      set to anything to use the flat icon even when Xcode is there.
 #   ELARA_BUNDLE_ID      the bundle identifier, org.elarawm.ElaraWM by default.
 set -eu
 
@@ -16,6 +17,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 dest=${1:-"$root/target/release"}
 identity=${ELARA_SIGN_IDENTITY:--}
 bundle_id=${ELARA_BUNDLE_ID:-org.elarawm.ElaraWM}
+icon_layers="$root/resources/icons/MacOS Icons/Elara.icon"
+min_system=14.0
 icon_source="$root/resources/icons/MacOS Icons/Elara Exports/Elara-iOS-Default-1024@1x.png"
 
 if [ "$(uname -s)" != Darwin ]; then
@@ -41,22 +44,54 @@ app="$work/ElaraWM.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$root/target/release/elara" "$app/Contents/MacOS/elara"
 
-# The icon. The export fills its canvas; macOS icons leave a margin around the shape, 824
-# points of 1024, so that it is the size of its neighbors in the Dock and Finder.
+# The icon. With Xcode installed, the layered `Elara.icon` is compiled, which is what gives
+# the icon its dark, tinted and clear appearances. `actool` writes an asset catalog for
+# that and a flat `.icns` beside it for anything that does not read the catalog.
 #
-# This is the flat picture of the icon. The layered `Elara.icon` next to it would need
-# Xcode's `actool` to compile, which the Command Line Tools do not have.
-sips -z 824 824 "$icon_source" --out "$work/shape.png" >/dev/null
-sips -p 1024 1024 "$work/shape.png" --out "$work/icon.png" >/dev/null
-iconset="$work/ElaraWM.iconset"
-mkdir "$iconset"
-for size in 16 32 128 256 512; do
-    double=$((size * 2))
-    sips -z "$size" "$size" "$work/icon.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-    sips -z "$double" "$double" "$work/icon.png" \
-        --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/ElaraWM.icns"
+# Xcode does not have to be the selected developer directory: it is looked for where it is
+# normally installed too.
+actool=$(xcrun --find actool 2>/dev/null ||
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --find actool 2>/dev/null ||
+    true)
+icon_name=
+if [ -n "$actool" ] && [ -z "${ELARA_FLAT_ICON:-}" ]; then
+    if "$actool" "$icon_layers" \
+        --compile "$app/Contents/Resources" \
+        --app-icon Elara \
+        --output-partial-info-plist "$work/icon.plist" \
+        --platform macosx \
+        --minimum-deployment-target "$min_system" >"$work/actool.log" 2>&1 &&
+        [ -f "$app/Contents/Resources/Assets.car" ] &&
+        [ -f "$app/Contents/Resources/Elara.icns" ]; then
+        icon_file=Elara
+        icon_name=Elara
+        icon_kind="layered icon"
+    else
+        echo "bundle-app: actool could not compile the layered icon; using the flat one:" >&2
+        cat "$work/actool.log" >&2
+        rm -f "$app/Contents/Resources/Assets.car" "$app/Contents/Resources/Elara.icns"
+    fi
+fi
+
+# Without Xcode, the flat picture of the icon. The export fills its canvas; macOS icons leave
+# a margin around the shape, 824 points of 1024, so that it is the size of its neighbors in
+# the Dock and Finder.
+if [ -z "$icon_name" ]; then
+    icon_file=ElaraWM
+    icon_kind="flat icon"
+    sips -z 824 824 "$icon_source" --out "$work/shape.png" >/dev/null
+    sips -p 1024 1024 "$work/shape.png" --out "$work/icon.png" >/dev/null
+    iconset="$work/ElaraWM.iconset"
+    mkdir "$iconset"
+    for size in 16 32 128 256 512; do
+        double=$((size * 2))
+        sips -z "$size" "$size" "$work/icon.png" \
+            --out "$iconset/icon_${size}x${size}.png" >/dev/null
+        sips -z "$double" "$double" "$work/icon.png" \
+            --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+    done
+    iconutil -c icns "$iconset" -o "$app/Contents/Resources/ElaraWM.icns"
+fi
 
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,7 +103,7 @@ cat >"$app/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key>
     <string>elara</string>
     <key>CFBundleIconFile</key>
-    <string>ElaraWM</string>
+    <string>$icon_file</string>
     <key>CFBundleIdentifier</key>
     <string>$bundle_id</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -86,7 +121,7 @@ cat >"$app/Contents/Info.plist" <<PLIST
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+    <string>$min_system</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
@@ -96,6 +131,9 @@ cat >"$app/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+if [ -n "$icon_name" ]; then
+    plutil -insert CFBundleIconName -string "$icon_name" "$app/Contents/Info.plist"
+fi
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 
 codesign --force --sign "$identity" --identifier "$bundle_id" "$app"
@@ -104,4 +142,4 @@ codesign --verify --strict "$app"
 mkdir -p "$dest"
 rm -rf "$dest/ElaraWM.app"
 mv "$app" "$dest/ElaraWM.app"
-echo "bundle-app: wrote $dest/ElaraWM.app ($version, signed with \"$identity\")"
+echo "bundle-app: wrote $dest/ElaraWM.app ($version, $icon_kind, signed with \"$identity\")"
