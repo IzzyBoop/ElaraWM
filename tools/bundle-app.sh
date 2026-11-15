@@ -5,17 +5,27 @@
 #   tools/bundle-app.sh ~/Applications  # writes it there instead
 #
 # Environment:
-#   ELARA_SIGN_IDENTITY  the code-signing identity to sign with. The default, "-", signs
-#                        ad hoc: macOS then sees every build as a different application,
-#                        and the Accessibility permission has to be granted again after
-#                        each one. A real identity, even a self-signed one, keeps it.
+#   ELARA_SIGN_IDENTITY  the code-signing identity to sign with. By default, a certificate
+#                        named "ElaraWM Signing" if the keychain has one, and otherwise
+#                        "-", which signs ad hoc. An ad hoc build is a different
+#                        application to macOS every time: the Accessibility permission
+#                        has to be granted again after each one, and the old entries pile
+#                        up in System Settings. Any certificate, even a self-signed one,
+#                        keeps the permission across builds. See the README for making one.
 #   ELARA_FLAT_ICON      set to anything to use the flat icon even when Xcode is there.
 #   ELARA_BUNDLE_ID      the bundle identifier, org.elarawm.ElaraWM by default.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 dest=${1:-"$root/target/release"}
-identity=${ELARA_SIGN_IDENTITY:--}
+local_identity="ElaraWM Signing"
+if [ -n "${ELARA_SIGN_IDENTITY:-}" ]; then
+    identity=$ELARA_SIGN_IDENTITY
+elif security find-certificate -c "$local_identity" >/dev/null 2>&1; then
+    identity=$local_identity
+else
+    identity=-
+fi
 bundle_id=${ELARA_BUNDLE_ID:-org.elarawm.ElaraWM}
 icon_layers="$root/resources/icons/MacOS Icons/Elara.icon"
 min_system=14.0
