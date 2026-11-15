@@ -59,7 +59,7 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/elara-layout/src/utils/mod.rs` | `src/utils/mod.rs` | modified: Wayland-specific helpers and unused submodules removed |
 | `crates/elara-layout/src/window/mod.rs` | `src/window/mod.rs` | modified: `WindowRef` carries window facts instead of wrapping Wayland surfaces |
 | `crates/elara-layout/src/render_helpers/` | `src/render_helpers/` | stubbed, see below |
-| `crates/elara/src/ui/hotkey_overlay.rs` | `src/ui/hotkey_overlay.rs` | modified: `content()` in place of `render()` and `a11y_text()`; modifiers named as on a Mac keyboard; "Exit ElaraWM" |
+| `crates/elara/src/ui/hotkey_overlay.rs` | `src/ui/hotkey_overlay.rs` | modified: `content()` in place of `render()` and `a11y_text()`; modifiers named as on a Mac keyboard; "Exit ElaraWM"; the list is framed with the focus ring's line |
 | `resources/default-config.kdl` | `resources/default-config.kdl` | verbatim |
 | `resources/elara-default-config.kdl` | `resources/default-config.kdl` | generated: niri's default with marked edits for macOS |
 | `docs/wiki/*.md` | `docs/wiki/*.md` | verbatim (images and assets not imported) |
