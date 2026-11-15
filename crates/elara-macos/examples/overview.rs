@@ -17,9 +17,9 @@ fn main() {
     use std::time::{Duration, Instant};
 
     use elara_macos::{
-        displays, render_overview, run_main_loop, take_overview_input, DisplayInfo, Outline,
-        Overview, OverviewDisplay, OverviewItem, OverviewPanels, OverviewShadow, OverviewWindow,
-        OverviewWorkspace, Rect, Wake, WindowId,
+        displays, render_overview, run_main_loop, take_overview_input, ColorSpace, DisplayInfo,
+        Gradient, HueInterpolation, Outline, Overview, OverviewDisplay, OverviewItem,
+        OverviewPanels, OverviewShadow, OverviewWindow, OverviewWorkspace, Rect, Wake, WindowId,
     };
 
     // Three workspaces at half size, as niri's default zoom shows them: the one in the
@@ -59,7 +59,16 @@ fn main() {
             rect: Rect::new(x + 8. - 2., top - 2., column + 4., full + 4.),
             line_width: 2.,
             corner_radius: [16. * zoom + 2.; 4],
-            color: [0.498, 0.784, 1., 1.],
+            // The gradient niri's default config suggests, from the bottom left to the top
+            // right.
+            color: [0.502, 0.784, 1., 1.],
+            gradient: Some(Gradient {
+                to: [0.78, 1., 0.498, 1.],
+                area: Rect::new(x + 8. - 2., top - 2., column + 4., full + 4.),
+                angle: (45f64 - 90.).to_radians(),
+                space: ColorSpace::Srgb,
+                hue: HueInterpolation::Shorter,
+            }),
         };
         let items = vec![
             OverviewItem::Shape(ring),

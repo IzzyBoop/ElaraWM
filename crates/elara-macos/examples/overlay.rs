@@ -15,29 +15,42 @@ fn main() {
     use std::io::Write;
     use std::time::{Duration, Instant};
 
-    use elara_macos::{displays, rasterize, run_main_loop, Outline, Overlay, Rect, Size, Wake};
+    use elara_macos::{
+        displays, rasterize, run_main_loop, ColorSpace, Gradient, HueInterpolation, Outline,
+        Overlay, Rect, Size, Wake,
+    };
 
     // A focus ring around a window with round corners, a border with square ones, and an
-    // insert hint, at the sizes niri's default config gives them.
+    // insert hint, at the sizes niri's default config gives them. The ring has the gradient
+    // that niri's default config suggests, from the bottom left to the top right.
     let sample = |x: f64, y: f64| {
         vec![
             Outline {
                 rect: Rect::new(x + 20., y + 20., 300., 200.),
                 line_width: 4.,
                 corner_radius: [16.; 4],
-                color: [0.498, 0.784, 1., 1.],
+                color: [0.502, 0.784, 1., 1.],
+                gradient: Some(Gradient {
+                    to: [0.78, 1., 0.498, 1.],
+                    area: Rect::new(x + 20., y + 20., 300., 200.),
+                    angle: (45f64 - 90.).to_radians(),
+                    space: ColorSpace::Srgb,
+                    hue: HueInterpolation::Shorter,
+                }),
             },
             Outline {
                 rect: Rect::new(x + 360., y + 20., 200., 200.),
                 line_width: 4.,
                 corner_radius: [0.; 4],
                 color: [0.314, 0.314, 0.314, 1.],
+                gradient: None,
             },
             Outline {
                 rect: Rect::new(x + 600., y + 20., 120., 200.),
                 line_width: 0.,
                 corner_radius: [12., 12., 0., 0.],
                 color: [1., 0.784, 0.498, 0.5],
+                gradient: None,
             },
         ]
     };

@@ -3,7 +3,10 @@
 use elara::config::default_config;
 use elara::pointer::PointerInput;
 use elara::State;
-use elara_macos::{MockBackend, MouseButton, Outline, Point, Rect, WindowBackend, WindowId};
+use elara_macos::{
+    ColorSpace, HueInterpolation, MockBackend, MouseButton, Outline, Point, Rect, WindowBackend,
+    WindowId,
+};
 use niri_config::{Action, Config};
 
 const SCREEN: Rect = Rect::new(0., 0., 1800., 1169.);
@@ -69,6 +72,7 @@ fn the_focus_ring_goes_around_the_focused_window() {
         line_width: RING_WIDTH,
         corner_radius: [RING_RADIUS; 4],
         color: ACTIVE,
+        gradient: None,
     };
     assert_eq!(outlines(&state), [expected(frame(&state, a))]);
 
@@ -119,6 +123,7 @@ fn the_config_sets_width_and_color_and_a_rule_sets_the_corners() {
             // Around square corners the ring is square too, as in niri.
             corner_radius: [0.; 4],
             color: [1., 0., 0., 1.],
+            gradient: None,
         }]
     );
 }
@@ -428,4 +433,71 @@ fn switching_a_column_to_tabs_and_back_shows_no_window_out_of_place() {
     assert_eq!(frame(&state, a).x, column.x);
     assert_eq!(frame(&state, b).x, column.x);
     assert!(frame(&state, b).y >= frame(&state, a).max_y());
+}
+
+#[test]
+fn a_gradient_in_the_config_fills_the_ring() {
+    let (state, [a, _b]) = two_columns(config(
+        r##"layout { focus-ring { active-gradient from="#ff0000" to="#0000ff" angle=45; }; }"##,
+    ));
+    let ring = around(frame(&state, a), RING_WIDTH);
+    let [outline] = outlines(&state)[..] else {
+        panic!("{:?}", outlines(&state));
+    };
+    assert_eq!(outline.rect, ring);
+    assert_eq!(outline.color, [1., 0., 0., 1.]);
+
+    let gradient = outline.gradient.expect("the ring has a gradient");
+    assert_eq!(gradient.to, [0., 0., 1., 1.]);
+    // It spans the ring, from the bottom left to the top right as in CSS at 45 degrees.
+    assert_eq!(gradient.area, ring);
+    let (start, end) = gradient.line();
+    assert!(start.x < end.x && start.y > end.y, "{start:?} {end:?}");
+    assert_eq!(gradient.space, ColorSpace::Srgb);
+}
+
+#[test]
+fn the_default_angle_runs_a_gradient_from_top_to_bottom() {
+    let (state, [a, _b]) = two_columns(config(
+        r##"layout { focus-ring { active-gradient from="#ff0000" to="#0000ff"; }; }"##,
+    ));
+    let ring = around(frame(&state, a), RING_WIDTH);
+    let (start, end) = outlines(&state)[0].gradient.unwrap().line();
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-3;
+    assert!(close(start.x, end.x), "{start:?} {end:?}");
+    assert!(close(start.y, ring.y) && close(end.y, ring.max_y()));
+}
+
+#[test]
+fn a_gradient_can_span_the_whole_view_and_blend_in_another_color_space() {
+    let (state, [a, b]) = two_columns(config(
+        r##"
+        layout {
+            focus-ring { off; }
+            border {
+                width 4
+                active-gradient from="#ff0000" to="#0000ff" relative-to="workspace-view" in="oklch longer hue"
+                inactive-gradient from="#ff0000" to="#0000ff" relative-to="workspace-view" in="oklch longer hue"
+            }
+        }
+        "##,
+    ));
+    let outlines = outlines(&state);
+    assert_eq!(outlines.len(), 2);
+    // Both borders are windows onto one gradient, which covers what the workspace shows.
+    let gradients: Vec<_> = outlines.iter().map(|o| o.gradient.unwrap()).collect();
+    assert_eq!(gradients[0].area, gradients[1].area);
+    let area = gradients[0].area;
+    assert!(area.w > frame(&state, a).w + frame(&state, b).w, "{area:?}");
+    assert!(SCREEN.contains_rect(&area), "{area:?}");
+    assert_eq!(gradients[0].space, ColorSpace::Oklch);
+    assert_eq!(gradients[0].hue, HueInterpolation::Longer);
+}
+
+#[test]
+fn one_color_is_not_a_gradient() {
+    let (state, _) = two_columns(config(
+        r##"layout { focus-ring { active-gradient from="#ff0000" to="#ff0000"; }; }"##,
+    ));
+    assert_eq!(outlines(&state)[0].gradient, None);
 }

@@ -12,11 +12,11 @@ use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    DisplayId, DisplayInfo, Event, Ghost, Outline, Overview, OverviewDisplay, OverviewItem,
-    OverviewShadow, OverviewWindow, OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend,
-    WindowId, WindowInfo, WindowKind,
+    ColorSpace, DisplayId, DisplayInfo, Event, Ghost, Gradient, HueInterpolation, Outline,
+    Overview, OverviewDisplay, OverviewItem, OverviewShadow, OverviewWindow, OverviewWorkspace,
+    Point as GlobalPoint, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
 };
-use niri_config::{Config, OutputName};
+use niri_config::{Config, GradientColorSpace, OutputName};
 use niri_ipc::{PositionChange, SizeChange};
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
@@ -1619,16 +1619,48 @@ fn scaled_outline(
     origin: (f64, f64),
     zoom: f64,
 ) -> Outline {
-    // A gradient is drawn in its first color.
-    let color = parameters.color_from;
+    let (from, to) = (parameters.color_from, parameters.color_to);
     let radius = parameters.corner_radius;
+    let rect = Rect::new(
+        origin.0 + rect.loc.x * zoom,
+        origin.1 + rect.loc.y * zoom,
+        rect.size.w * zoom,
+        rect.size.h * zoom,
+    );
+
+    // niri gives the area the gradient spans relative to the element, and the shape too.
+    // Going by the shape's size as well as its place covers a shape that came zoomed out
+    // already, as the insert hint does in the overview.
+    let (area, geometry) = (parameters.gradient_area, parameters.geometry);
+    let gradient = (from != to && geometry.size.w > 0. && geometry.size.h > 0.).then(|| {
+        let (sx, sy) = (rect.w / geometry.size.w, rect.h / geometry.size.h);
+        let format = parameters.gradient_format;
+        Gradient {
+            to: [to.r, to.g, to.b, to.a * parameters.alpha],
+            area: Rect::new(
+                rect.x + (area.loc.x - geometry.loc.x) * sx,
+                rect.y + (area.loc.y - geometry.loc.y) * sy,
+                area.size.w * sx,
+                area.size.h * sy,
+            ),
+            angle: f64::from(parameters.angle),
+            space: match format.color_space {
+                GradientColorSpace::Srgb => ColorSpace::Srgb,
+                GradientColorSpace::SrgbLinear => ColorSpace::SrgbLinear,
+                GradientColorSpace::Oklab => ColorSpace::Oklab,
+                GradientColorSpace::Oklch => ColorSpace::Oklch,
+            },
+            hue: match format.hue_interpolation {
+                niri_config::HueInterpolation::Shorter => HueInterpolation::Shorter,
+                niri_config::HueInterpolation::Longer => HueInterpolation::Longer,
+                niri_config::HueInterpolation::Increasing => HueInterpolation::Increasing,
+                niri_config::HueInterpolation::Decreasing => HueInterpolation::Decreasing,
+            },
+        }
+    });
+
     Outline {
-        rect: Rect::new(
-            origin.0 + rect.loc.x * zoom,
-            origin.1 + rect.loc.y * zoom,
-            rect.size.w * zoom,
-            rect.size.h * zoom,
-        ),
+        rect,
         line_width: line_width * zoom,
         corner_radius: [
             radius.top_left,
@@ -1637,7 +1669,8 @@ fn scaled_outline(
             radius.bottom_left,
         ]
         .map(|radius| f64::from(radius) * zoom),
-        color: [color.r, color.g, color.b, color.a * parameters.alpha],
+        color: [from.r, from.g, from.b, from.a * parameters.alpha],
+        gradient,
     }
 }
 

@@ -15,6 +15,7 @@
 extern crate tracing;
 
 mod geometry;
+mod gradient;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mock;
@@ -22,6 +23,7 @@ mod mock;
 use std::fmt;
 
 pub use geometry::{Point, Rect, Size};
+pub use gradient::{ColorSpace, Gradient, HueInterpolation};
 #[cfg(target_os = "macos")]
 pub use macos::{
     accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
@@ -157,6 +159,23 @@ pub struct Outline {
     /// Red, green, blue and opacity, each from 0 to 1. The colors are sRGB and are not
     /// multiplied by the opacity.
     pub color: [f32; 4],
+    /// If set, the shape is filled with a gradient that starts with `color`.
+    pub gradient: Option<Gradient>,
+}
+
+impl Outline {
+    /// Returns the shape moved by `dx` to the right and `dy` down, with its gradient.
+    pub fn translated(&self, dx: f64, dy: f64) -> Self {
+        let moved = |rect: Rect| Rect::new(rect.x + dx, rect.y + dy, rect.w, rect.h);
+        Self {
+            rect: moved(self.rect),
+            gradient: self.gradient.map(|gradient| Gradient {
+                area: moved(gradient.area),
+                ..gradient
+            }),
+            ..*self
+        }
+    }
 }
 
 /// The overview: every workspace and its windows, zoomed out.
