@@ -38,7 +38,8 @@ fi
 codesign --verify --deep --strict "$app"
 
 # bundle-app.sh keeps the builder's home directory out of the binary. Make sure of it.
-if strings -a "$binary" | grep -q -F "$HOME/"; then
+# Looked for in the raw bytes: `strings` skips the parts of the file it takes for symbols.
+if LC_ALL=C grep -q -a -F "$HOME" "$binary"; then
     echo "release: the binary names paths under $HOME" >&2
     exit 1
 fi
