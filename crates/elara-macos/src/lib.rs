@@ -127,6 +127,21 @@ pub enum InputEvent {
     Mouse(MouseEvent),
 }
 
+/// A picture of a window, shown where the window itself cannot be.
+///
+/// macOS does not let a window go above the menu bar. A workspace that slides in from above,
+/// or out at the top, has windows whose place is partly up there, and a picture of such a
+/// window is drawn in its place until the window can be there itself.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ghost {
+    pub window: WindowId,
+    /// Where the window would be, in global coordinates.
+    pub rect: Rect,
+    /// The part of the screen the picture may show in: the window's display, below the
+    /// menu bar.
+    pub clip: Rect,
+}
+
 /// A shape drawn on top of the desktop: a line around a rectangle, or a filled rectangle.
 ///
 /// This is how focus rings, window borders and the hint for where a dragged window will land
@@ -400,6 +415,10 @@ pub trait WindowBackend {
     /// Shows exactly these outlines on top of the desktop, replacing whatever was shown.
     /// Later ones are drawn over earlier ones.
     fn set_outlines(&mut self, outlines: &[Outline]);
+
+    /// Shows exactly these pictures of windows, replacing whatever was shown. A window
+    /// that no picture can be had of is not shown.
+    fn set_ghosts(&mut self, ghosts: &[Ghost]);
 
     /// Shows the overview, replacing what it showed before, or takes it away with `None`.
     fn set_overview(&mut self, overview: Option<&Overview>);

@@ -29,14 +29,15 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
+use super::ghosts::GhostPanels;
 use super::hotkey_overlay::HotkeyOverlayPanels;
 use super::overlay::Overlay;
 use super::overview::OverviewPanels;
 use super::thumbnails::{Thumbnails, Wanted};
 use super::{accessibility_trusted, ax, display, spaces};
 use crate::{
-    DisplayInfo, Error, Event, HotkeyOverlay, Outline, Overview, OverviewItem, Rect, WindowBackend,
-    WindowId, WindowInfo, WindowKind,
+    DisplayInfo, Error, Event, Ghost, HotkeyOverlay, Outline, Overview, OverviewItem, Rect,
+    WindowBackend, WindowId, WindowInfo, WindowKind,
 };
 
 /// How long to wait for an application to answer one Accessibility request.
@@ -44,6 +45,10 @@ use crate::{
 /// The system default is six seconds, which would freeze window management whenever one
 /// application hangs.
 const MESSAGING_TIMEOUT_SECS: f32 = 0.5;
+
+/// How many pictures of windows are kept for the next time their workspace slides, beyond
+/// those in use. Each is as large as its window, so this bounds the memory they take.
+const GHOST_PICTURES_KEPT: usize = 8;
 
 /// How long to keep trying to observe an application that has just launched. Applications
 /// refuse Accessibility requests until they have finished starting up.
@@ -196,6 +201,18 @@ pub struct MacBackend {
     thumbnails: Thumbnails,
     /// Which pictures the overview is showing: [`Thumbnails::version()`] as of then.
     thumbnails_shown: u64,
+    /// The windows that pictures of windows are drawn in where the windows cannot be, once
+    /// there has been one to draw.
+    ghost_panels: Option<GhostPanels>,
+    /// The pictures last asked for, to tell when nothing changed.
+    ghosts: Vec<Ghost>,
+    /// The pictures themselves. Kept apart from the overview's, which are smaller and are
+    /// dropped on other occasions.
+    ghost_pictures: Thumbnails,
+    /// Which pictures are showing: [`Thumbnails::version()`] as of then.
+    ghost_pictures_shown: u64,
+    /// The windows pictures were last asked for.
+    ghost_pictures_of: Vec<WindowId>,
 }
 
 impl MacBackend {
@@ -232,6 +249,11 @@ impl MacBackend {
             hotkey_overlay: None,
             thumbnails: Thumbnails::new(),
             thumbnails_shown: 0,
+            ghost_panels: None,
+            ghosts: Vec::new(),
+            ghost_pictures: Thumbnails::quiet(),
+            ghost_pictures_shown: 0,
+            ghost_pictures_of: Vec::new(),
         };
 
         // Before any window is looked at: the overlay marks the Space that is showing now.
@@ -522,6 +544,15 @@ impl MacBackend {
     /// to be on the managed Space.
     pub fn can_tell_spaces(&self) -> bool {
         self.home_seen
+    }
+
+    /// How many of the windows shown as pictures in place of themselves there is a picture
+    /// of. For checking that pictures can be taken.
+    pub fn ghost_picture_count(&self) -> usize {
+        self.ghosts
+            .iter()
+            .filter(|ghost| self.ghost_pictures.get(ghost.window).is_some())
+            .count()
     }
 
     /// How many windows there is a picture of for the overview to show. For checking that
@@ -844,6 +875,54 @@ impl WindowBackend for MacBackend {
             .set(&displays, outlines);
     }
 
+    fn set_ghosts(&mut self, ghosts: &[Ghost]) {
+        // This is called on every pass, and on nearly all of them there are none.
+        if ghosts.is_empty() && self.ghosts.is_empty() {
+            return;
+        }
+
+        if !ghosts.is_empty() {
+            // New pictures when other windows need one, and now and then while the same
+            // ones do. Until they come, the last picture taken of a window is shown: it is
+            // rarely far off, and a window that turns up halfway is worse.
+            let ids: Vec<WindowId> = ghosts.iter().map(|ghost| ghost.window).collect();
+            if self.ghost_pictures.due(ids != self.ghost_pictures_of) {
+                let wanted = ids
+                    .iter()
+                    .filter_map(|id| self.windows.get(id))
+                    .map(|window| Wanted {
+                        id: window.info.id,
+                        pid: window.info.pid,
+                        frame: window.info.frame,
+                        title: window.info.title.clone(),
+                    })
+                    .collect();
+                let scale = display::displays(self.mtm)
+                    .iter()
+                    .map(|display| display.scale)
+                    .fold(1., f64::max);
+                self.ghost_pictures
+                    .refresh(wanted, scale, GHOST_PICTURES_KEPT);
+                self.ghost_pictures_of = ids;
+            }
+        } else {
+            // The next slide is a new occasion, even with the same windows.
+            self.ghost_pictures_of.clear();
+        }
+
+        let version = self.ghost_pictures.version();
+        if self.ghosts == ghosts && self.ghost_pictures_shown == version {
+            return;
+        }
+        self.ghosts = ghosts.to_vec();
+        self.ghost_pictures_shown = version;
+        let displays = display::displays(self.mtm);
+        let pictures = &self.ghost_pictures;
+        self.ghost_panels
+            .get_or_insert_with(GhostPanels::new)
+            .set(&displays, ghosts, &|id| pictures.get(id));
+    }
+
     fn set_overview(&mut self, overview: Option<&Overview>) {
         match overview.and_then(|overview| Some((overview, overview.thumbnails?))) {
             Some((overview, zoom)) => {
@@ -867,7 +946,7 @@ impl WindowBackend for MacBackend {
                         .iter()
                         .map(|display| display.scale)
                         .fold(1., f64::max);
-                    self.thumbnails.refresh(wanted, zoom * scale);
+                    self.thumbnails.refresh(wanted, zoom * scale, 0);
                 }
             }
             // The pictures are kept while the overview is closed, to have something to show

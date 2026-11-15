@@ -270,3 +270,68 @@ fn moving_a_column_glides_it_past_its_neighbor() {
         assert!(between > 4, "expected a glide, got {path:?}");
     }
 }
+
+// Pictures of windows where the windows cannot be.
+
+/// Switches from a workspace holding `d` to the one above it, holding `c`, and returns what
+/// was shown of `c` on every frame: its own frame, and the picture of it, if any.
+fn arrive_from_above(config: Config) -> Vec<(Rect, Option<elara_macos::Ghost>)> {
+    let (mut state, [_a, _b, c]) = animated(config);
+    state.do_action(Action::FocusWorkspaceDown);
+    settle(&mut state, c);
+    let _d = open(&mut state, "d");
+
+    state.do_action(Action::FocusWorkspaceUp);
+    let started = Instant::now();
+    let mut shown = Vec::new();
+    while state.is_animating() {
+        assert!(started.elapsed() < Duration::from_secs(5));
+        sleep(Duration::from_millis(8));
+        state.tick();
+        let ghost = state
+            .backend()
+            .ghosts()
+            .iter()
+            .find(|ghost| ghost.window == c);
+        shown.push((frame(&state, c), ghost.copied()));
+    }
+    assert!(state.backend().ghosts().is_empty());
+    shown
+}
+
+#[test]
+fn a_window_arriving_from_above_is_shown_as_a_picture_until_it_can_be_there() {
+    let config = Config::parse_mem("overview {\n window-thumbnails\n}").unwrap();
+    let shown = arrive_from_above(config);
+
+    // While the window is kept out of sight, its picture slides down from under the menu
+    // bar, clipped there.
+    let pictures: Vec<_> = shown
+        .iter()
+        .filter_map(|(frame, ghost)| Some((frame, (*ghost)?)))
+        .collect();
+    assert!(pictures.len() > 4, "expected a slide, got {shown:?}");
+    for (frame, ghost) in &pictures {
+        assert!(is_parked(**frame), "picture and window both showing");
+        assert!(ghost.rect.y < 39. && ghost.rect.max_y() > 39., "{ghost:?}");
+        assert_eq!(ghost.clip, Rect::new(0., 39., SCREEN.w, SCREEN.h - 39.));
+    }
+    let tops: Vec<f64> = pictures.iter().map(|(_, ghost)| ghost.rect.y).collect();
+    assert!(tops.windows(2).all(|pair| pair[0] <= pair[1]), "{tops:?}");
+
+    // Once the window is there itself, the picture is gone, and it does not come back.
+    let first_real = shown.iter().position(|(frame, _)| !is_parked(*frame));
+    let first_real = first_real.expect("the window never arrived");
+    assert!(shown[first_real..].iter().all(|(_, ghost)| ghost.is_none()));
+    // No frame in between with neither, once the picture has started.
+    let first_picture = shown.iter().position(|(_, ghost)| ghost.is_some()).unwrap();
+    for (frame, ghost) in &shown[first_picture..] {
+        assert!(ghost.is_some() || !is_parked(*frame));
+    }
+}
+
+#[test]
+fn no_pictures_are_shown_unless_the_config_asks_for_them() {
+    let shown = arrive_from_above(default_config());
+    assert!(shown.iter().all(|(_, ghost)| ghost.is_none()));
+}

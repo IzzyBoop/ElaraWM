@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    DisplayId, DisplayInfo, Error, Event, HotkeyOverlay, Outline, Overview, Rect, Size,
+    DisplayId, DisplayInfo, Error, Event, Ghost, HotkeyOverlay, Outline, Overview, Rect, Size,
     WindowBackend, WindowId, WindowInfo, WindowKind,
 };
 
@@ -36,6 +36,8 @@ pub struct MockBackend {
     frame_requests: Vec<(WindowId, Rect)>,
     /// The outlines last asked for.
     outlines: Vec<Outline>,
+    /// The pictures of windows last asked for.
+    ghosts: Vec<Ghost>,
     /// The overview, if it is showing.
     overview: Option<Overview>,
     /// The list of key bindings, if it is showing.
@@ -244,6 +246,11 @@ impl MockBackend {
     }
 
     /// Returns the outlines that are on screen.
+    /// The pictures of windows being shown in place of the windows.
+    pub fn ghosts(&self) -> &[Ghost] {
+        &self.ghosts
+    }
+
     pub fn outlines(&self) -> &[Outline] {
         &self.outlines
     }
@@ -357,6 +364,10 @@ impl WindowBackend for MockBackend {
 
     fn set_outlines(&mut self, outlines: &[Outline]) {
         self.outlines = outlines.to_vec();
+    }
+
+    fn set_ghosts(&mut self, ghosts: &[Ghost]) {
+        self.ghosts = ghosts.to_vec();
     }
 
     fn set_overview(&mut self, overview: Option<&Overview>) {

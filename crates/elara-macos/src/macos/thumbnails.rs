@@ -67,7 +67,10 @@ pub(super) struct Wanted {
 
 #[derive(Default)]
 struct Shared {
-    images: Mutex<HashMap<WindowId, CFRetained<CGImage>>>,
+    /// Each picture with a number that says how recent it is: higher is newer.
+    images: Mutex<HashMap<WindowId, (CFRetained<CGImage>, u64)>>,
+    /// The number the next picture gets.
+    taken: AtomicU64,
     /// Goes up whenever `images` changes.
     version: AtomicU64,
     /// How many answers are still awaited.
@@ -118,13 +121,23 @@ impl Thumbnails {
         }
     }
 
+    /// As [`Self::new()`], but saying nothing if the permission is missing. For a second
+    /// user of pictures, when the first one has spoken.
+    pub(super) fn quiet() -> Self {
+        Self {
+            warned: true,
+            ..Self::new()
+        }
+    }
+
     /// A number that changes whenever the pictures do.
     pub(super) fn version(&self) -> u64 {
         self.shared.version.load(Ordering::SeqCst)
     }
 
     pub(super) fn get(&self, id: WindowId) -> Option<CFRetained<CGImage>> {
-        self.shared.images.lock().unwrap().get(&id).cloned()
+        let images = self.shared.images.lock().unwrap();
+        images.get(&id).map(|(image, _)| image.clone())
     }
 
     /// Forgets every picture.
@@ -149,9 +162,9 @@ impl Thumbnails {
     }
 
     /// Asks for a picture of each of `wanted`, `scale` pixels to the point. The pictures
-    /// turn up in [`Self::get()`] when they are ready, and those of windows not in `wanted`
-    /// are dropped.
-    pub(super) fn refresh(&mut self, wanted: Vec<Wanted>, scale: f64) {
+    /// turn up in [`Self::get()`] when they are ready. Of the pictures of windows not in
+    /// `wanted`, the `keep` most recent stay and the rest are dropped.
+    pub(super) fn refresh(&mut self, wanted: Vec<Wanted>, scale: f64, keep: usize) {
         if !screen_recording_permitted() {
             if !self.warned {
                 self.warned = true;
@@ -182,7 +195,16 @@ impl Thumbnails {
             {
                 let mut images = shared.images.lock().unwrap();
                 let before = images.len();
-                images.retain(|id, _| wanted.iter().any(|window| window.id == *id));
+                let mut others: Vec<(u64, WindowId)> = images
+                    .iter()
+                    .filter(|(id, _)| !wanted.iter().any(|window| window.id == **id))
+                    .map(|(id, (_, taken))| (*taken, *id))
+                    .collect();
+                // Newest first; what is past `keep` goes.
+                others.sort_unstable_by(|a, b| b.cmp(a));
+                for (_, id) in others.into_iter().skip(keep) {
+                    images.remove(&id);
+                }
                 if images.len() != before {
                     shared.version.fetch_add(1, Ordering::SeqCst);
                 }
@@ -296,7 +318,8 @@ fn capture(shared: Arc<Shared>, id: WindowId, frame: Rect, target: &SCWindow, sc
         // SAFETY: the system passes a valid image, which is kept past the call by retaining
         // it.
         let image = unsafe { CFRetained::retain(image) };
-        shared.images.lock().unwrap().insert(id, image);
+        let taken = shared.taken.fetch_add(1, Ordering::SeqCst);
+        shared.images.lock().unwrap().insert(id, (image, taken));
         shared.answered(true);
     });
 
