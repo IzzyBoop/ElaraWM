@@ -170,7 +170,8 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
     use elara::State;
     use elara_macos::{
         accessibility_trusted, request_accessibility, run_main_loop, take_overview_input,
-        InputEvent, KeyTap, MacBackend, MenuBar, MenuCommand, OverviewInput, Wake,
+        InputEvent, KeyTap, MacBackend, MenuBar, MenuCommand, MouseButton, MouseEventKind,
+        OverviewInput, Wake,
     };
     use niri_config::Action;
 
@@ -183,6 +184,8 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
     enum Input {
         Scroll(ScrollInput),
         Pointer(PointerInput),
+        /// The left button went down or came up on something that is not ElaraWM's.
+        SystemPress(bool),
         /// Take the list of key bindings away: something was pressed or scrolled.
         HideHotkeyOverlay,
     }
@@ -388,6 +391,19 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
                         );
                         let mut inputs = inputs.borrow_mut();
                         inputs.extend(response.inputs.into_iter().map(Input::Pointer));
+                        // A left press that is not for ElaraWM may be the start of the system
+                        // dragging a window.
+                        if !response.swallow {
+                            match event.kind {
+                                MouseEventKind::Pressed(MouseButton::Left) => {
+                                    inputs.push_back(Input::SystemPress(true));
+                                }
+                                MouseEventKind::Released(MouseButton::Left) => {
+                                    inputs.push_back(Input::SystemPress(false));
+                                }
+                                _ => {}
+                            }
+                        }
                         if let Some(action) = response.action {
                             tracing::debug!("bound mouse button pressed");
                             inputs.push_back(Input::Scroll(ScrollInput::Action(action)));
@@ -457,6 +473,7 @@ fn run(config: Config, config_path: Option<PathBuf>, log: Option<PathBuf>) -> Ex
                     }
                     Input::Scroll(ScrollInput::GestureEnd) => state.gesture_end(),
                     Input::Pointer(input) => state.pointer_input(input),
+                    Input::SystemPress(down) => state.system_press(down),
                     Input::HideHotkeyOverlay => state.hide_hotkey_overlay(),
                 }
             }

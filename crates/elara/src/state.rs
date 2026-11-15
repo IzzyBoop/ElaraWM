@@ -1,6 +1,6 @@
 //! The window manager: niri's layout on one side, the system's windows on the other.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
@@ -91,6 +91,12 @@ pub struct State<B: WindowBackend> {
     gesture: Option<Gesture>,
     /// The window being moved or resized with the mouse, if any.
     pub(crate) pointer_grab: Option<PointerGrab>,
+    /// Whether the left mouse button is down on something that is not ElaraWM's: the press
+    /// went to an application or to the system, which may be dragging a window with it.
+    system_press: bool,
+    /// Windows that moved or changed size on their own during that press: the user is
+    /// dragging them by the title bar or an edge.
+    user_dragged: HashSet<WindowId>,
     /// The window whose edges are being dragged, and which edges. Kept until the window has
     /// been given its last size, which is after the drag ends.
     pub(crate) resizing: Option<(WindowId, ResizeEdge)>,
@@ -138,6 +144,8 @@ impl<B: WindowBackend> State<B> {
             animate: false,
             gesture: None,
             pointer_grab: None,
+            system_press: false,
+            user_dragged: HashSet::new(),
             resizing: None,
             focus_history: Vec::new(),
             quit_requested: false,
@@ -645,6 +653,9 @@ impl<B: WindowBackend> State<B> {
             now = ?frame,
             "window changed frame on its own"
         );
+        if self.system_press {
+            self.user_dragged.insert(id);
+        }
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
         if size_changed && is_floating {
@@ -688,6 +699,18 @@ impl<B: WindowBackend> State<B> {
         }
     }
 
+    /// Tells the state that the left mouse button went down or came up on something that
+    /// is not ElaraWM's to handle.
+    ///
+    /// While it is down the system may be dragging a window, by its title bar or an edge.
+    /// The system moves the window with the pointer and reports where it is afterwards, a
+    /// few times a second, so anything drawn around it would trail behind. Nothing is drawn
+    /// around such a window until the button is released.
+    pub fn system_press(&mut self, down: bool) {
+        self.system_press = down;
+        self.user_dragged.clear();
+    }
+
     // Applying the layout.
 
     /// Makes the system match the layout: every window is asked to take the frame the layout
@@ -723,17 +746,31 @@ impl<B: WindowBackend> State<B> {
                 // never get there. So when the new size does not fit at the target position,
                 // the window is first resized at the nearest position where it does, and
                 // placed properly on the next round.
-                let resizing = size_of(target.frame) != size_of(window.frame());
-                let request = if resizing {
-                    let anchored = self.anchored_for_resize(window, target.frame);
-                    fitted(anchored, target.usable)
+                //
+                // A window that was asked for the size like that and settled on another, as a
+                // terminal does to fit whole rows of text, will not answer differently a
+                // second time. It is moved to its place with the size it has. Asking again
+                // there would do harm where the place is out of sight: a resize is cut short
+                // at the edge of the display, and all but a corner of the window is past it.
+                let size = size_of(target.frame);
+                let current = window.frame();
+                let settled = size != size_of(current) && window.settled_for() == Some(size);
+                let resizing = size != size_of(current) && !settled;
+                let goal = if settled {
+                    Rect::new(target.frame.x, target.frame.y, current.w, current.h)
                 } else {
                     target.frame
+                };
+                let request = if resizing {
+                    let anchored = self.anchored_for_resize(window, goal);
+                    fitted(anchored, target.usable)
+                } else {
+                    goal
                 };
 
                 // Nothing to do if the window is there already, or was asked for exactly this
                 // and answered with something else that it has kept since.
-                if window.frame() == target.frame || window.last_request() == Some(request) {
+                if current == goal || window.last_request() == Some(request) {
                     continue;
                 }
 
@@ -755,7 +792,12 @@ impl<B: WindowBackend> State<B> {
                             self.layout.update_window(&target.id, None);
                             any_response = true;
                         }
-                        if request != target.frame {
+                        // Only where the size fit is another size the window's own choice.
+                        if resizing && learn_limits && size_of(actual) != size {
+                            window.set_settled_for(Some(size));
+                            any_response = true;
+                        }
+                        if request != goal {
                             any_response = true;
                         }
                     }
@@ -1121,6 +1163,10 @@ impl<B: WindowBackend> State<B> {
                         continue;
                     }
                     let window = tile.window();
+                    // Not around a window the system is dragging: see `system_press()`.
+                    if self.user_dragged.contains(&window.window_id()) {
+                        continue;
+                    }
                     let window_loc = tile.window_loc();
                     let loc = ws_geo.loc + tile_pos + window_loc;
                     let expected = (origin.x + loc.x.round(), origin.y + loc.y.round());
