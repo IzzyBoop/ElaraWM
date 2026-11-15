@@ -391,3 +391,41 @@ fn nothing_is_drawn_around_a_window_while_the_system_drags_it() {
     state.tick();
     assert!(ring(&state));
 }
+
+#[test]
+fn switching_a_column_to_tabs_and_back_shows_no_window_out_of_place() {
+    let (mut state, [a, b]) = two_columns(default_config());
+    state.do_action(Action::ConsumeWindowIntoColumn);
+    state.tick();
+    let column = frame(&state, a);
+    state.backend_mut().take_frame_requests();
+
+    // Every place a window is put on the way must be in the column or out of sight, never
+    // in the empty part of the screen beside the column.
+    let check = |state: &mut State<MockBackend>, what: &str| {
+        for (id, asked) in state.backend_mut().take_frame_requests() {
+            let hidden = asked.x == SCREEN.max_x() - 1.;
+            assert!(
+                hidden || asked.x == column.x,
+                "{what}: {id:?} was put at {asked:?}"
+            );
+        }
+    };
+
+    state.do_action(Action::ToggleColumnTabbedDisplay);
+    state.tick();
+    check(&mut state, "to tabs");
+    assert_eq!(frame(&state, b).x, SCREEN.max_x() - 1.);
+    assert_eq!(frame(&state, b).h, frame(&state, a).h);
+
+    state.do_action(Action::FocusWindowDown);
+    state.tick();
+    check(&mut state, "other tab");
+
+    state.do_action(Action::ToggleColumnTabbedDisplay);
+    state.tick();
+    check(&mut state, "to a stack");
+    assert_eq!(frame(&state, a).x, column.x);
+    assert_eq!(frame(&state, b).x, column.x);
+    assert!(frame(&state, b).y >= frame(&state, a).max_y());
+}
