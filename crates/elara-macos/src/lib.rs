@@ -26,8 +26,9 @@ pub use geometry::{Point, Rect, Size};
 pub use macos::{
     accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
     displays_have_separate_spaces, rasterize, render_overview, request_accessibility,
-    run as run_main_loop, set_start_at_login, start_at_login, take_overview_input, KeyTap,
-    MacBackend, MenuBar, MenuCommand, Overlay, OverviewPanels, Wake,
+    request_screen_recording, run as run_main_loop, screen_recording_permitted, set_start_at_login,
+    start_at_login, take_overview_input, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay,
+    OverviewPanels, Wake,
 };
 pub use mock::MockBackend;
 
@@ -153,6 +154,10 @@ pub struct Outline {
 pub struct Overview {
     /// What shows behind the workspaces: red, green, blue and opacity, as in [`Outline`].
     pub backdrop: [f32; 4],
+    /// Whether to show a picture of each window in place of its card, and how large to take
+    /// the pictures: this many times the size of the window. Taking them needs the Screen
+    /// Recording permission; a window there is no picture of keeps its card.
+    pub thumbnails: Option<f64>,
     /// What to draw on each display. A display that is not listed shows only the backdrop.
     pub displays: Vec<OverviewDisplay>,
 }

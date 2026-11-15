@@ -78,6 +78,7 @@ fn main() {
 
         Overview {
             backdrop: [0.15, 0.15, 0.15, 1.],
+            thumbnails: None,
             displays: vec![OverviewDisplay {
                 display: display.id,
                 workspaces,
@@ -107,7 +108,7 @@ fn main() {
         [flag, seconds] if flag == "--show" => {
             let seconds: f64 = seconds.parse().expect("--show takes a number of seconds");
             let mut panels = OverviewPanels::new();
-            panels.set(&displays, Some(&sample(&primary)), &pid_of);
+            panels.set(&displays, Some(&sample(&primary)), &pid_of, &|_| None);
 
             let started = Instant::now();
             run_main_loop(Duration::from_millis(100), || {
@@ -120,7 +121,7 @@ fn main() {
                     Wake::After(Duration::from_millis(100))
                 }
             });
-            panels.set(&displays, None, &pid_of);
+            panels.set(&displays, None, &pid_of, &|_| None);
         }
         _ => eprintln!("usage: overview --raster <file> | --show <seconds>  [--pid <pid>]"),
     }

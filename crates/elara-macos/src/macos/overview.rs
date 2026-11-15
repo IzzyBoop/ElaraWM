@@ -14,6 +14,7 @@ use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSBackingStoreType, NSColor, NSEvent, NSEventModifierFlags, NSEventPhase,
@@ -22,7 +23,7 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::{CFRetained, CFType, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGColor, CGColorSpace, CGContext, CGImageAlphaInfo,
+    CGBitmapContextCreate, CGColor, CGColorSpace, CGContext, CGImage, CGImageAlphaInfo,
 };
 use objc2_foundation::{NSObjectProtocol, NSString};
 use objc2_quartz_core::{
@@ -244,7 +245,12 @@ struct Card {
     /// What the title says now.
     text: Option<String>,
     has_icon: bool,
+    /// The picture of the window that the card shows in place of all that, if there is one.
+    picture: Option<CFRetained<CGImage>>,
 }
+
+/// Finds the picture of a window, if one has been taken.
+type Pictures<'a> = &'a dyn Fn(WindowId) -> Option<CFRetained<CGImage>>;
 
 impl Card {
     fn new(style: &Style, icon: Option<&NSImage>, scale: f64) -> Self {
@@ -285,7 +291,36 @@ impl Card {
             title,
             text: None,
             has_icon: icon.is_some(),
+            picture: None,
         }
+    }
+
+    /// Has the card show `picture`, or its icon and title if there is none.
+    fn set_picture(&mut self, style: &Style, picture: Option<CFRetained<CGImage>>) {
+        if self.picture == picture {
+            return;
+        }
+        match &picture {
+            Some(image) => {
+                // SAFETY: an image is one of the kinds of object a layer accepts as its
+                // contents, and Core Foundation objects are Objective-C objects.
+                unsafe {
+                    let image = CFRetained::as_ptr(image).as_ptr().cast::<AnyObject>();
+                    self.layer.setContents(Some(&*image));
+                }
+                // The picture is the whole window. Where its corners are cut, what is
+                // behind the card shows.
+                self.layer.setBackgroundColor(None);
+                self.layer.setBorderWidth(0.);
+            }
+            None => {
+                // SAFETY: taking the contents away again.
+                unsafe { self.layer.setContents(None) };
+                self.layer.setBackgroundColor(Some(&style.card));
+                self.layer.setBorderWidth(1.);
+            }
+        }
+        self.picture = picture;
     }
 
     /// Puts the card at `frame`, which is in its parent's coordinates, and lays out what is
@@ -311,9 +346,10 @@ impl Card {
         } else {
             0.
         };
-        let show_icon = side >= MIN_ICON;
+        let show_icon = side >= MIN_ICON && self.picture.is_none();
         let side = if show_icon { side } else { 0. };
-        let has_text = self.text.as_ref().is_some_and(|text| !text.is_empty());
+        let has_text =
+            self.picture.is_none() && self.text.as_ref().is_some_and(|text| !text.is_empty());
         let with_title = TITLE_HEIGHT + if show_icon { TITLE_GAP } else { 0. };
         let show_title = has_text && w >= 80. && h >= side + with_title + 2. * TITLE_GAP;
 
@@ -361,6 +397,7 @@ impl Scene {
         part: Option<&OverviewDisplay>,
         style: &Style,
         icon: &mut dyn FnMut(WindowId) -> Option<Retained<NSImage>>,
+        pictures: Pictures<'_>,
     ) {
         let bounds = CGRect::new(
             CGPoint::new(0., 0.),
@@ -458,6 +495,7 @@ impl Scene {
                         self.root.addSublayer(&card.layer);
                         card
                     });
+                    card.set_picture(style, pictures(window.id));
                     card.update(local(window.rect), window);
                     card.layer.setZPosition(z);
                     present.push(window.id);
@@ -570,12 +608,14 @@ impl OverviewPanels {
     }
 
     /// Shows exactly `overview` on `displays`, or nothing. `pid_of` says which process a
-    /// window belongs to.
+    /// window belongs to, and `picture_of` finds the picture to show for a window in place
+    /// of its card.
     pub fn set(
         &mut self,
         displays: &[DisplayInfo],
         overview: Option<&Overview>,
         pid_of: &dyn Fn(WindowId) -> Option<i32>,
+        picture_of: &dyn Fn(WindowId) -> Option<CFRetained<CGImage>>,
     ) {
         // The windows of a display that is gone go with it.
         self.surfaces.retain(|surface| {
@@ -637,12 +677,17 @@ impl OverviewPanels {
 
             let part = overview.displays.iter().find(|d| d.display == display.id);
             let icons = &mut self.icons;
-            surface
-                .scene
-                .update(display, overview.backdrop, part, &style, &mut |id| {
+            surface.scene.update(
+                display,
+                overview.backdrop,
+                part,
+                &style,
+                &mut |id| {
                     let pid = pid_of(id)?;
                     icons.entry(pid).or_insert_with(|| icon_of(pid)).clone()
-                });
+                },
+                picture_of,
+            );
 
             if !self.shown {
                 surface.window.orderFrontRegardless();
@@ -688,9 +733,14 @@ pub fn render_overview(
     let style = Style::current(mtm);
     let mut scene = Scene::new();
     let part = overview.displays.iter().find(|d| d.display == display.id);
-    scene.update(display, overview.backdrop, part, &style, &mut |id| {
-        icon_of(pid_of(id)?)
-    });
+    scene.update(
+        display,
+        overview.backdrop,
+        part,
+        &style,
+        &mut |id| icon_of(pid_of(id)?),
+        &|_| None,
+    );
     scene.root.layoutIfNeeded();
 
     let scale = display.scale;

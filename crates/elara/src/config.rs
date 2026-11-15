@@ -175,14 +175,21 @@ mod tests {
             .expect("the header ends where niri's file begins");
 
         let niri_lines: Vec<&str> = niri.lines().collect();
+        // Whether the line is in a comment that began with a marked ElaraWM line.
+        let mut in_our_comment = false;
         for line in body.lines() {
             // Every line is niri's, or niri's commented out, or a marked ElaraWM line, or the
-            // replacement that directly follows one.
+            // rest of the comment one begins, or the replacement that directly follows one.
             let uncommented = line.trim_start().strip_prefix("// ").unwrap_or(line);
             let is_niri = niri_lines
                 .iter()
                 .any(|theirs| *theirs == line || theirs.trim_start() == uncommented);
-            let is_ours = line.contains("ElaraWM:") || line.contains(r#"spawn "open" "-a""#);
+            if line.contains("ElaraWM:") {
+                in_our_comment = true;
+            } else if !line.starts_with("//") {
+                in_our_comment = false;
+            }
+            let is_ours = in_our_comment || line.contains(r#"spawn "open" "-a""#);
             assert!(
                 is_niri || is_ours,
                 "unexpected line in the default config: {line}"

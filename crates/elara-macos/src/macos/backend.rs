@@ -31,10 +31,11 @@ use objc2_foundation::{MainThreadMarker, NSNotification, NSNotificationName};
 
 use super::overlay::Overlay;
 use super::overview::OverviewPanels;
+use super::thumbnails::{Thumbnails, Wanted};
 use super::{accessibility_trusted, ax, display, spaces};
 use crate::{
-    DisplayInfo, Error, Event, Outline, Overview, Rect, WindowBackend, WindowId, WindowInfo,
-    WindowKind,
+    DisplayInfo, Error, Event, Outline, Overview, OverviewItem, Rect, WindowBackend, WindowId,
+    WindowInfo, WindowKind,
 };
 
 /// How long to wait for an application to answer one Accessibility request.
@@ -186,6 +187,10 @@ pub struct MacBackend {
     overview_panels: Option<OverviewPanels>,
     /// The overview last asked for, to tell when nothing changed.
     overview: Option<Overview>,
+    /// Pictures of windows for the overview, if the config asks for them.
+    thumbnails: Thumbnails,
+    /// Which pictures the overview is showing: [`Thumbnails::version()`] as of then.
+    thumbnails_shown: u64,
 }
 
 impl MacBackend {
@@ -218,6 +223,8 @@ impl MacBackend {
             outlines: Vec::new(),
             overview_panels: None,
             overview: None,
+            thumbnails: Thumbnails::new(),
+            thumbnails_shown: 0,
         };
 
         // Before any window is looked at: the overlay marks the Space that is showing now.
@@ -508,6 +515,15 @@ impl MacBackend {
     /// to be on the managed Space.
     pub fn can_tell_spaces(&self) -> bool {
         self.home_seen
+    }
+
+    /// How many windows there is a picture of for the overview to show. For checking that
+    /// pictures can be taken.
+    pub fn thumbnail_count(&self) -> usize {
+        self.windows
+            .keys()
+            .filter(|id| self.thumbnails.get(**id).is_some())
+            .count()
     }
 
     /// Whether a window that has just come to light is on the managed Space.
@@ -822,18 +838,56 @@ impl WindowBackend for MacBackend {
     }
 
     fn set_overview(&mut self, overview: Option<&Overview>) {
+        match overview.and_then(|overview| Some((overview, overview.thumbnails?))) {
+            Some((overview, zoom)) => {
+                if self.thumbnails.due(self.overview.is_none()) {
+                    let wanted = overview
+                        .displays
+                        .iter()
+                        .flat_map(|display| &display.items)
+                        .filter_map(|item| match item {
+                            OverviewItem::Window(window) => self.windows.get(&window.id),
+                            OverviewItem::Shape(_) => None,
+                        })
+                        .map(|window| Wanted {
+                            id: window.info.id,
+                            pid: window.info.pid,
+                            frame: window.info.frame,
+                            title: window.info.title.clone(),
+                        })
+                        .collect();
+                    let scale = display::displays(self.mtm)
+                        .iter()
+                        .map(|display| display.scale)
+                        .fold(1., f64::max);
+                    self.thumbnails.refresh(wanted, zoom * scale);
+                }
+            }
+            // The pictures are kept while the overview is closed, to have something to show
+            // the moment it opens again. They go when the config stops asking for them.
+            None if overview.is_some() => self.thumbnails.clear(),
+            None => {}
+        }
+
         // This is called on every pass; most of them change nothing.
-        if self.overview.as_ref() == overview {
+        let version = self.thumbnails.version();
+        if self.overview.as_ref() == overview && self.thumbnails_shown == version {
             return;
         }
         self.overview = overview.cloned();
+        self.thumbnails_shown = version;
         let displays = display::displays(self.mtm);
         let windows = &self.windows;
+        let thumbnails = &self.thumbnails;
+        let wants_pictures = overview.is_some_and(|overview| overview.thumbnails.is_some());
         self.overview_panels
             .get_or_insert_with(OverviewPanels::new)
-            .set(&displays, overview, &|id| {
-                windows.get(&id).map(|window| window.info.pid)
-            });
+            .set(
+                &displays,
+                overview,
+                &|id| windows.get(&id).map(|window| window.info.pid),
+                &|id| thumbnails.get(id).filter(|_| wants_pictures),
+            );
     }
 
     fn drain_events(&mut self) -> Vec<Event> {

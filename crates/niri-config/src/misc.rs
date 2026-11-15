@@ -123,6 +123,9 @@ pub struct Overview {
     pub zoom: f64,
     pub backdrop_color: Color,
     pub workspace_shadow: WorkspaceShadow,
+    // ELARA: not in niri, which draws the windows themselves. Whether the overview shows
+    // pictures of the windows, which on macOS takes the Screen Recording permission.
+    pub window_thumbnails: bool,
 }
 
 impl Default for Overview {
@@ -131,6 +134,7 @@ impl Default for Overview {
             zoom: 0.5,
             backdrop_color: DEFAULT_BACKDROP_COLOR,
             workspace_shadow: WorkspaceShadow::default(),
+            window_thumbnails: false,
         }
     }
 }
@@ -143,11 +147,14 @@ pub struct OverviewPart {
     pub backdrop_color: Option<Color>,
     #[knuffel(child)]
     pub workspace_shadow: Option<WorkspaceShadowPart>,
+    // ELARA: see `Overview`.
+    #[knuffel(child)]
+    pub window_thumbnails: Option<Flag>,
 }
 
 impl MergeWith<OverviewPart> for Overview {
     fn merge_with(&mut self, part: &OverviewPart) {
-        merge!((self, part), zoom, workspace_shadow);
+        merge!((self, part), zoom, workspace_shadow, window_thumbnails);
         merge_clone!((self, part), backdrop_color);
     }
 }

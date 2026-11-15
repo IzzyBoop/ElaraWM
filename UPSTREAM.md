@@ -39,7 +39,8 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/niri-ipc/Cargo.toml` | `niri-ipc/Cargo.toml` | modified: explicit version |
 | `crates/niri-config/` | `niri-config/` | verbatim |
 | `crates/niri-config/Cargo.toml` | `niri-config/Cargo.toml` | modified: explicit version, Smithay stand-in, clippy allowances |
-| `crates/niri-config/src/lib.rs` | `niri-config/src/lib.rs` | modified: path to the default config |
+| `crates/niri-config/src/lib.rs` | `niri-config/src/lib.rs` | modified: path to the default config; `window_thumbnails` in the parse snapshot |
+| `crates/niri-config/src/misc.rs` | `niri-config/src/misc.rs` | modified: `window-thumbnails` added to the `overview` section |
 | `crates/niri-config/tests/wiki-parses.rs` | `niri-config/tests/wiki-parses.rs` | modified: path to the wiki |
 | `crates/elara-layout/src/animation/` | `src/animation/` | verbatim |
 | `crates/elara-layout/src/layout/` | `src/layout/` | verbatim, tests included |
