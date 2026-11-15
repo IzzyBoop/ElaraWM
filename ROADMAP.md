@@ -8,9 +8,9 @@ works today.
 `ElaraWM.app` is meant to be what people install. These are what stands between the
 application as it builds today and that.
 
-1. **A place to download it from.** The repository has no remote and no releases. Publish
-   it, make a first release, and put the link to the Releases page in the README, which
-   now only says "the Releases page of this repository".
+1. **A place to download it from.** The repository is on GitHub, private for now, and the
+   README links to its Releases page. Still to do: make a first release, and make the
+   repository public, without which nobody else can reach the download.
 
 2. **A release script.** One command that builds the application, signs it, zips it with
    the version in its name and says what to upload. Today `tools/bundle-app.sh` stops at
