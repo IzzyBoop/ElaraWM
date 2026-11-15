@@ -16,7 +16,7 @@ works with System Integrity Protection enabled.
 
 **Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
 workspaces, and driven by niri's key bindings and config file. The strip of columns and the
-workspaces glide into place. The focus ring, window borders, the tab indicator of tabbed
+workspaces glide into place, and so do windows that are moved within the layout. The focus ring, window borders, the tab indicator of tabbed
 columns and the hint for where a dragged window will land are drawn; shadows are not. The
 overview shows every workspace zoomed out, with a card standing in for each window, or a
 picture of it if you allow screen recording. niri's list of important hotkeys shows at startup

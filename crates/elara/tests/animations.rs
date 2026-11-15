@@ -238,3 +238,35 @@ fn without_enabling_animations_nothing_glides() {
     assert!(!state.is_animating());
     assert_eq!(frame(&state, a).x, GAP);
 }
+
+#[test]
+fn moving_a_column_glides_it_past_its_neighbor() {
+    let (mut state, [a, b, _c]) = animated(default_config());
+    state.do_action(Action::FocusColumnFirst);
+    settle(&mut state, b);
+    let (left, right) = (frame(&state, a).x, frame(&state, b).x);
+    assert!(left < right);
+
+    // `a` and `b` trade places: niri's window-movement animation.
+    state.do_action(Action::MoveColumnRight);
+    state.tick();
+    assert!(state.is_animating());
+    let mut path_a = vec![frame(&state, a).x];
+    let mut path_b = vec![frame(&state, b).x];
+    let started = Instant::now();
+    while state.is_animating() {
+        assert!(started.elapsed() < Duration::from_secs(5));
+        sleep(Duration::from_millis(8));
+        state.tick();
+        path_a.push(frame(&state, a).x);
+        path_b.push(frame(&state, b).x);
+    }
+
+    assert_eq!(frame(&state, a).x, right);
+    assert_eq!(frame(&state, b).x, left);
+    // Both went through places in between, not there in one step.
+    for path in [&path_a, &path_b] {
+        let between = path.iter().filter(|x| **x > left && **x < right).count();
+        assert!(between > 4, "expected a glide, got {path:?}");
+    }
+}
