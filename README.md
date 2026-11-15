@@ -7,185 +7,383 @@
 
 # ElaraWM
 
-A scrollable-tiling window manager for macOS 27, ported from
+A scrollable-tiling window manager for macOS, ported from
 [niri](https://github.com/niri-wm/niri).
 
-ElaraWM runs niri's own layout and configuration code. The Wayland compositor backend is replaced
-by a macOS backend that arranges real application windows through the Accessibility API, so it
-works with System Integrity Protection enabled.
+Windows are arranged in columns on a strip that scrolls sideways, on workspaces that stack
+up and down. Opening a window never resizes the ones you already have. ElaraWM runs niri's
+own layout and configuration code (tag v26.04); only the Wayland compositor underneath is
+replaced, by a backend that moves real application windows through the Accessibility API.
+System Integrity Protection stays on and no private APIs are used.
 
-**Status:** early development. Windows are tiled into niri's scrolling columns, on niri's dynamic
-workspaces, and driven by niri's key bindings and config file. The strip of columns and the
-workspaces glide into place, and so do windows that are moved within the layout. The focus ring, window borders, the tab indicator of tabbed
-columns and the hint for where a dragged window will land are drawn; shadows are not. The
-overview shows every workspace zoomed out, with a card standing in for each window, or a
-picture of it if you allow screen recording. niri's list of important hotkeys shows at startup
-and on `Mod+Shift+/`. It has had little use on a real desktop.
+**Status:** early development, in daily use on one display. Expect rough edges, and read
+[Quirks and known issues](#quirks-and-known-issues) before relying on it.
 
-## Goals
+## Contents
 
-- The same scrolling layout as niri: columns on an infinite horizontal strip, dynamic workspaces
-  per monitor.
-- niri's `config.kdl` format, read from `~/.config/elara/config.kdl`.
-- No SIP changes, no private APIs.
+- [Requirements](#requirements)
+- [Installing and starting](#installing-and-starting)
+- [Permissions](#permissions)
+- [Using it](#using-it)
+- [Configuration](#configuration)
+- [What is different from niri](#what-is-different-from-niri)
+- [Quirks and known issues](#quirks-and-known-issues)
+- [Troubleshooting](#troubleshooting)
+- [Not there yet](#not-there-yet)
+- [Building and developing](#building-and-developing)
+- [License](#license)
 
-## What macOS does not allow
+## Requirements
 
-ElaraWM is a window manager, not a compositor. It cannot change other applications' shadows,
-opacity or corner radius, and it cannot draw windows itself, or draw them smaller than they
-are. Sections of a niri config that only
-make sense on Linux are accepted and ignored.
+- macOS 27. That is what ElaraWM is developed and tested on. The application bundle declares
+  macOS 14 as its minimum, but nothing older than 27 has been tried.
+- [rustup](https://rustup.rs) to build it. The compiler version is pinned in
+  `rust-toolchain.toml` and rustup fetches it by itself. There are no prebuilt downloads.
+- Xcode is optional. With it the application gets its layered icon, with dark, tinted and
+  clear appearances; without it, a flat one.
 
-## Running
+## Installing and starting
 
-```sh
-cargo run -p elara
-```
+There are two ways to run ElaraWM. Both are the same program.
 
-ElaraWM needs the Accessibility permission to move other applications' windows. macOS grants it
-per application; for a build run from a terminal, that is the terminal (or the editor whose
-terminal you use). On first start macOS offers to open the right pane of System Settings.
-
-Stop it with Ctrl-C. Windows that were scrolled out of view are brought back on screen.
-
-While it runs, ElaraWM has an item in the menu bar: its mark and the name or number of the
-workspace that is showing. Its menu opens the config file, shows the log, switches starting at
-login on or off, and quits.
-
-### As an application
+### As an application (recommended)
 
 ```sh
 tools/bundle-app.sh                 # writes target/release/ElaraWM.app
 tools/bundle-app.sh /Applications   # or puts it somewhere else
 ```
 
-Started this way, ElaraWM has no Dock icon and no window, only the menu bar item. The
-Accessibility permission is then its own: on first start macOS offers to open System Settings,
-and ElaraWM waits in the menu bar until the permission is granted. Its log is written to
+Open `ElaraWM.app`. It has no Dock icon and no window, only an item in the menu bar. On
+first start macOS offers to open System Settings for the Accessibility permission, and
+ElaraWM waits in the menu bar until it is granted. Its log goes to
 `~/Library/Logs/ElaraWM/elara.log`; the log of the run before is kept as `elara.log.1`.
 
-"Start at Login" in the menu needs the application: it is greyed out for `cargo run`.
+**Sign it with a certificate of your own, or you will grant the permission again after
+every rebuild.** macOS ties permissions to the application's signature. The script signs
+with a certificate named "ElaraWM Signing" if your keychain has one, and the permissions
+then carry over from build to build. Without it the script signs ad hoc, macOS takes every
+build for a different application, and the old entries pile up in System Settings.
 
-macOS ties the Accessibility permission to the application's signature. The script signs
-with a certificate named "ElaraWM Signing" if your keychain has one, and the permission then
-carries over from one build to the next. Without it the script signs ad hoc, which needs no
-certificate, but macOS then takes every build for a different application: the permission has
-to be granted again after each rebuild, and the old entries pile up in the list.
-
-To make the certificate, open Keychain Access and choose Certificate Assistant > Create a
-Certificate, with the name "ElaraWM Signing", identity type "Self-Signed Root" and certificate
-type "Code Signing". It only means something on your own machine. To sign with a different
-identity:
+To make the certificate: open Keychain Access, choose Certificate Assistant > Create a
+Certificate, and give it the name "ElaraWM Signing", identity type "Self-Signed Root" and
+certificate type "Code Signing". It only means something on your own machine. To sign with
+a different identity:
 
 ```sh
 ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
 ```
 
-With Xcode installed, the icon is compiled from the layered
-`resources/icons/MacOS Icons/Elara.icon`, which gives it its dark, tinted and clear
-appearances. Without Xcode the script still works and uses the flat picture in `Elara Exports`
-next to it.
+### From a terminal
+
+```sh
+cargo run -p elara
+```
+
+Run this way, the permissions belong to the terminal (or the editor whose terminal you
+use), not to ElaraWM. The log is printed to the terminal; set `RUST_LOG=elara=debug` for
+more of it. `elara --config <path>` reads a config from somewhere else. "Start at Login"
+in the menu is greyed out, since there is no application to start.
+
+### Stopping
+
+Any of these stops ElaraWM and puts every window back where it was before ElaraWM took it:
+
+- `Mod+Shift+E`, the default `quit` bind. It quits at once; niri's confirmation dialog is
+  not shown.
+- "Quit ElaraWM" in the menu bar item.
+- Ctrl-C in the terminal, or `pkill -INT -x elara` from anywhere.
+
+Do not force-quit it or use `kill -9`. See [Troubleshooting](#troubleshooting) if you did.
+
+## Permissions
+
+| Permission | Needed for | Without it |
+| --- | --- | --- |
+| Accessibility | Moving and resizing windows, and seeing keys for the binds | ElaraWM does nothing and waits |
+| Screen Recording | Pictures of windows in the overview and while workspaces slide | Works, with cards in place of pictures |
+
+Screen Recording is only asked for if `window-thumbnails` is on in the config, which it is
+in the config ElaraWM writes for you. macOS asks the first time the overview is opened;
+once you grant it, quit ElaraWM and start it again. On recent versions of macOS the system
+reminds you from time to time that ElaraWM can record the screen. The pictures are used for
+nothing else and never leave ElaraWM's memory. To do without the permission, remove
+`window-thumbnails` from the config.
+
+## Using it
+
+`Mod` is the Option key unless you change it. These are the most used of the default
+binds; `Mod+Shift+/` shows a list on screen, and the config file has them all.
+
+| Keys | What they do |
+| --- | --- |
+| `Mod+Left` / `Right` (or `H` / `L`) | Focus the column to the left or right |
+| `Mod+Up` / `Down` (or `K` / `J`) | Focus the window above or below in a column |
+| `Mod+Ctrl+` arrows | Move the column or window that way |
+| `Mod+U` / `I` (or `Page_Down` / `Page_Up`) | Switch to the workspace below or above |
+| `Mod+1` … `9` | Switch to a workspace by number |
+| `Mod+Ctrl+1` … `9` | Move the column to that workspace |
+| `Mod+,` / `Mod+.` | Pull the next window into this column, or push one out |
+| `Mod+[` / `Mod+]` | Move a window into or out of the neighboring column |
+| `Mod+R` | Cycle the column through the preset widths |
+| `Mod+-` / `Mod+=` | Make the column narrower or wider |
+| `Mod+F` | Give the column the full width |
+| `Mod+Shift+F` | Fullscreen the window |
+| `Mod+C` | Center the column |
+| `Mod+W` | Show the column's windows as tabs |
+| `Mod+V` | Switch the window between floating and tiled |
+| `Mod+O` | Open or close the overview |
+| `Mod+Q` | Close the window |
+| `Mod+T` | Open Terminal |
+| `Mod+Shift+E` | Quit ElaraWM |
+
+### Mouse and trackpad
+
+- **Resize a tiled window** by dragging one of its edges, with nothing held, the way macOS
+  has it. Its column takes the new width and the window the new height, and the neighbors
+  make room as you drag. A tiled window dragged by its title bar goes back to its place
+  when you let go.
+- **`Mod` + left drag** on a window moves it. A tiled window leaves its column and lands
+  where you drop it; a hint shows where. Pressing the right button while moving switches
+  the window between floating and tiled.
+- **`Mod` + right drag** resizes a window by the nearest edge or corner.
+- **`Mod` + middle drag**, anywhere, drags the strip of columns sideways or the workspaces
+  up and down.
+- **`Mod` + two-finger scroll** on the trackpad does the same, like niri's three-finger
+  swipe.
+- **`Mod` + mouse wheel** switches workspaces, and with Shift moves between columns. These
+  are the `WheelScroll…` binds in the config.
+- **Clicking a tab** of a tabbed column switches to its window.
+
+### The overview
+
+`Mod+O` shows the workspaces of each display zoomed out, with the columns that are out of
+view beside them. In it:
+
+- A click on a window or a workspace goes to it.
+- Dragging a window moves it, to another workspace if you like.
+- Dragging with the right button, or scrolling with two fingers, moves a workspace's
+  columns sideways or the workspaces up and down.
+- The mouse wheel switches workspaces, and columns with Shift held.
+- The arrow keys move around; Escape or Return closes it.
+
+None of that needs `Mod`. Other keys reach no window while the overview is open, except
+with Command or Control held.
+
+macOS does not let another application's window be drawn small, so each window is shown as
+a picture of it, taken again about once a second (a video in a window moves in steps).
+Without the Screen Recording permission, and for any window no picture could be taken of,
+a card with the application's icon and the window's title stands in.
+
+### The menu bar item
+
+ElaraWM's mark, followed by the name or number of the workspace that is showing. Its menu
+opens the config file, shows the log, switches starting at login on or off, and quits.
+
+### The hotkey list
+
+`Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display.
+Pressing it again, or any other key, a click or scrolling, takes it away. It also shows
+when ElaraWM starts; `skip-at-startup` in the `hotkey-overlay` section stops that, and
+`hide-not-bound` there leaves out the actions that have no key. A bind's
+`hotkey-overlay-title` sets what its line says, or with `null` leaves the bind out. Of the
+Pango markup niri allows in a title, `<b>`, `<i>`, `<tt>` and the font, weight, style and
+color attributes of `<span>` have an effect.
 
 ## Configuration
 
 ElaraWM reads `~/.config/elara/config.kdl`, in
-[niri's format](https://niri-wm.github.io/niri/Configuration:-Introduction). The file is created
-on first start from niri's default config, adjusted for macOS, and is reloaded whenever it
-changes. If an edit has an error, the error is printed and the previous config stays in use.
+[niri's format](https://niri-wm.github.io/niri/Configuration:-Introduction). niri's
+documentation applies, apart from what is listed on this page. An existing niri config can
+be copied over as it is: what does not apply on macOS is skipped, not rejected.
 
-- `Mod` in binds is the Option key. Set `mod-key` in the `input` section to change it. Command
-  is `Super`, Option is `Alt`.
-- Holding `Mod` and scrolling with two fingers on the trackpad drags the strip of columns
-  sideways, or the workspaces up and down, like niri's three-finger swipe. The mouse wheel
-  triggers the `WheelScroll…` binds; by default `Mod`+wheel switches workspaces and
-  `Mod+Shift`+wheel moves between columns.
-- Holding `Mod` and dragging a window with the left mouse button moves it; with the right
-  button, it resizes the window by the nearest edge or corner. A tiled window that is dragged
-  leaves its column and lands where it is dropped. Pressing the other button while moving
-  switches it between floating and tiled. While ElaraWM runs, this replaces the macOS
-  behaviour of an Option-click hiding the application you were in.
-- A tiled window can also be resized the way macOS has it, by dragging one of its edges
-  with nothing held: its column takes the new width and the window the new height, and its
-  neighbors make room as you drag. The window goes back to its place in the layout when you
-  let go, with the size you gave it. A tiled window dragged by its title bar goes back to
-  its place as it was.
-- Holding `Mod` and dragging with the middle mouse button, anywhere, drags the strip of
-  columns sideways or the workspaces up and down.
-- Mouse buttons can be bound like keys: `MouseLeft`, `MouseRight`, `MouseMiddle`, `MouseBack`
-  and `MouseForward`, as in `Mod+MouseMiddle { close-window; }`.
-- The focus ring, borders, the tab indicator and the insert hint come from the `layout`
-  section, as in niri. Clicking a tab switches to its window. They
-  are drawn in a transparent window on top of the others, in the gaps between windows.
-  Gradients work as in niri: `angle`, `relative-to` and the color spaces of `in`. macOS
-  does not say how round a window's corners are,
-  so they are taken to have a radius of 16; set `geometry-corner-radius` in a window rule if
-  the ring does not hug your windows.
-- `Mod+O` opens the overview, as in niri: the workspaces of each display, zoomed out, with
-  the columns that are out of view beside them. macOS does not let another application's
-  window be drawn small, so each window is shown as a card with its application's icon and
-  its title. A click on a window or a workspace goes to it; dragging a window moves it, to
-  another workspace if you like; dragging with the right button, or scrolling with two
-  fingers, moves a workspace's columns sideways or the workspaces up and down; the mouse
-  wheel switches workspaces, and columns with Shift held. None of that needs `Mod`. Escape
-  or Return closes the overview and the arrow keys move around in it. Other keys reach no
-  window while it is open, except with Command or Control held. The `overview` section sets
-  `zoom`, `backdrop-color` and `workspace-shadow`. niri's hot corner and four-finger swipe
-  are not there: macOS keeps both for itself.
-- The overview can show pictures of the windows in place of the cards. The config file
-  ElaraWM writes when there is none has this on; a config without it has it off:
+- The file is created on first start from niri's default config, adjusted for macOS. Every
+  changed line is marked with `// ElaraWM:` and says why.
+- It is reloaded whenever it changes. If an edit has an error, the error is logged and the
+  config from before stays in use.
+- "Open Config" in the menu bar item opens it.
 
-  ```kdl
-  overview {
-      window-thumbnails
-  }
-  ```
+### What means something else on macOS
 
-  Taking the pictures needs a second permission, Screen Recording. macOS asks for it the
-  first time the overview is opened with this on; once it is granted, quit ElaraWM and
-  start it again. Until then, and for any window no picture could be taken of, the card
-  stays. The pictures are taken again about once a second while the overview is open, so
-  a video in a window moves in steps. On recent versions of macOS the system reminds you
-  from time to time that ElaraWM can record the screen. ElaraWM uses the permission for
-  nothing but this and the next point, and the pictures never leave its memory.
-- With `window-thumbnails` on, switching workspaces uses pictures too. macOS lets no window
-  go above the menu bar, so a workspace that slides in from above, or out at the top, has
-  its windows kept out of sight while their place is partly up there. A picture of each
-  slides in its place, and the window takes over when it can be there itself. Without
-  `window-thumbnails` such windows are simply gone for that part of the way. The first
-  time a window is needed like this, its picture can take a moment to turn up.
-- `Mod+Shift+/` shows niri's list of important hotkeys in the middle of each display, and
-  pressing it again, or any other key, a click or scrolling, takes the list away. It also
-  shows when ElaraWM starts; `skip-at-startup` in the `hotkey-overlay` section stops that,
-  and `hide-not-bound` there leaves out the actions that have no key. The modifiers are
-  listed by the names on a Mac keyboard: Option, Command, Control. A bind's
-  `hotkey-overlay-title` sets what its line says, or with `null` leaves the bind out. niri
-  lets the title use Pango markup; of that, `<b>`, `<i>`, `<tt>` and the font, weight, style
-  and color attributes of `<span>` have an effect here.
-- ElaraWM arranges the windows of one macOS Space: the one that is showing when it starts.
-  Windows on other Spaces are left as they are, and while you are on another Space ElaraWM
-  takes no keys and moves nothing. A window dragged onto its Space joins the layout, and one
-  dragged off it leaves, a second or two later. Workspaces in the niri sense are ElaraWM's
-  own and all live on that one Space.
-- Window rules match `app-id` against the application's bundle identifier, such as
-  `com.apple.Terminal`.
-- Output names are display names, such as `"Built-in Retina Display"`.
-- Sections for things macOS controls itself (display modes, keyboard layout, pointer settings,
-  the cursor, layer rules) are accepted and ignored, with a note in the log.
+- **`Mod`** is Option. Set `mod-key` in the `input` section to change it. In binds, `Super`
+  is Command and `Alt` is Option.
+- **`app-id`** in window rules is matched against the application's bundle identifier, such
+  as `com.apple.Terminal` or `com.apple.Safari`. The probe (see
+  [Troubleshooting](#troubleshooting)) lists the identifiers of the windows you have open.
+- **Output names** are display names, such as `"Built-in Retina Display"`.
+- **Mouse buttons** can be bound like keys: `MouseLeft`, `MouseRight`, `MouseMiddle`,
+  `MouseBack` and `MouseForward`, as in `Mod+MouseMiddle { close-window; }`.
+- **`geometry-corner-radius`**: macOS does not say how round a window's corners are, so
+  they are taken to have a radius of 16. Set this in a window rule if the focus ring does
+  not hug a window.
+- **`fullscreen-window`** makes the window fill the display up to the menu bar, which macOS
+  keeps on screen. It is not the macOS full screen of the green button.
 
-To see what ElaraWM can see without managing anything:
+### What ElaraWM adds
+
+One setting, in the `overview` section:
+
+```kdl
+overview {
+    window-thumbnails
+}
+```
+
+It has the overview show pictures of the windows in place of cards, and has a workspace
+that slides in from above show pictures of its windows on the way (see
+[The menu bar is in the way](#the-menu-bar-is-in-the-way)). It needs the Screen Recording
+permission. The config ElaraWM writes has it on; a config without it has it off.
+
+### What is read and has no effect
+
+These are accepted, so that a niri config loads, and then ignored. The sections in the
+first four points are named in the log when a config sets them.
+
+- `output`: macOS sets display modes, scale and arrangement.
+- `input` > `keyboard`, `touchpad`, `mouse`, `trackpoint`: macOS sets the keyboard layout,
+  key repeat, tap-to-click, scroll direction and pointer speed, in System Settings.
+- `cursor`: macOS draws the pointer.
+- `layer-rule`, `switch-events`, `xwayland-satellite`: these have no counterpart.
+- Shadows, in the `layout` section and in window rules. macOS gives windows their own.
+- Window rules that change how a window is drawn, such as `opacity`, `block-out-from` and
+  `clip-to-geometry`. ElaraWM cannot draw other applications' windows.
+- Animation settings for windows opening, closing and resizing. Those take effect at once.
+- `focus-follows-mouse` and `warp-mouse-to-focus`.
+
+Actions that have no counterpart do nothing and leave a line in the log: the screenshot
+actions (macOS has Shift+Command+3, 4 and 5), screencasts, the recent-windows switcher
+(Command+Tab is still there), switching keyboard layouts, `power-off-monitors` and
+`toggle-keyboard-shortcuts-inhibit`.
+
+## What is different from niri
+
+ElaraWM is a window manager, not a compositor. macOS draws every window and decides a good
+deal about where it may go. What follows from that:
+
+### Windows are moved, not drawn
+
+ElaraWM asks each application to move and resize its windows. So:
+
+- It cannot change another application's shadow, opacity or corner radius, show a window
+  smaller than it is, or blur what is behind one.
+- The focus ring, borders, the tab indicator and the insert hint are drawn in a transparent
+  window of ElaraWM's own, on top of the others, in the gaps the layout leaves. They follow
+  niri's `layout` settings, gradients included.
+- An application decides how fast its window moves. Most keep up with the animations; a
+  busy or slow one lags behind its focus ring for a moment.
+- An application can refuse a size. Terminals snap to whole rows and columns, some windows
+  have a minimum size, some cannot be resized at all. The layout is told what the window
+  took and arranges the rest around it, as niri does for clients that pick their own size.
+  Windows that cannot be resized, and dialogs, float by default.
+
+### The menu bar is in the way
+
+macOS lets no window go above the menu bar. A workspace that slides in from above, or out
+at the top, has its windows kept out of sight while their place is partly up there. With
+`window-thumbnails` on, a picture of each slides in its place and the window takes over
+when it can be there itself. The first time a window is needed like this, its picture can
+take a moment to turn up, and the picture has no focus ring or border. Without
+`window-thumbnails` such windows are simply gone for that part of the way.
+
+### Workspaces are ElaraWM's own
+
+niri's workspaces all live on one macOS Space: the one that is showing when ElaraWM
+starts. macOS cannot hide another application's window, so windows on other workspaces,
+and columns scrolled out of view, are parked past a corner of the display with a single
+pixel still on it.
+
+- Windows on other macOS Spaces are left as they are. While you are on another Space,
+  ElaraWM takes no keys and moves nothing.
+- A window dragged onto ElaraWM's Space joins the layout, and one dragged off it leaves, a
+  second or two later.
+- A minimized window, and one in macOS full screen, is out of the layout until it is back.
+
+### Gestures and corners
+
+niri's three-finger swipes, four-finger swipe and hot corner are not there: macOS keeps
+those for itself. `Mod` + two-finger scroll stands in for the swipes.
+
+### Animations
+
+The strip of columns, the workspaces, windows trading places and the overview glide as in
+niri. Windows opening, closing and resizing take effect at once. `animations { off }` turns
+all of it off.
+
+## Quirks and known issues
+
+- **Option stops typing special characters on bound keys.** A bind on `Mod+<key>` takes
+  over Option+that key, which macOS otherwise uses to type special characters. Remove the
+  bind to get the character back, or set `mod-key` to another modifier.
+- **Option-click no longer hides the application you were in.** While ElaraWM runs, `Mod` +
+  click belongs to moving windows.
+- **Binds do not work while a password field has the keyboard.** macOS hides the keys from
+  every other program then. The same goes for a terminal with "Secure Keyboard Entry" on,
+  for as long as it has focus.
+- **Mission Control shows every window, parked ones included,** since they are all on one
+  Space. The focus ring and borders hide while it is open.
+- **Command+Tab and the Dock work as always.** Going to an application whose window is on
+  another workspace switches to that workspace.
+- **A sliver of a parked window** can show as one pixel in a corner of the display.
+- **With "Displays have separate Spaces" off** (System Settings > Desktop & Dock), the
+  displays form one desktop, and a window parked at the edge of one display can show on
+  the next. ElaraWM says so in its log at startup. Leave the setting on.
+- **A window that opens at a size of its own** can show at that size for a moment before
+  it is placed.
+- **Stage Manager** has not been tried with ElaraWM.
+- **More than one display** is supported in the code (the `…-monitor-…` actions,
+  workspaces per display, plugging and unplugging) but has had almost no real use.
+- **The system's reminder about screen recording** comes back now and then if
+  `window-thumbnails` is on. That is macOS, and cannot be switched off from here.
+
+## Troubleshooting
+
+**Nothing is tiled after starting.** The Accessibility permission is missing. Look for
+ElaraWM (or, for `cargo run`, your terminal) in System Settings > Privacy & Security >
+Accessibility and switch it on. If it is listed and on but nothing happens, the entry
+belongs to an older build: remove it with the minus button, start ElaraWM and grant it
+again. Signing with your own certificate, as described under
+[Installing and starting](#installing-and-starting), stops this from recurring.
+
+**The overview shows cards, not pictures.** Screen Recording is missing, or was granted
+while ElaraWM was running. Grant it, then quit and start ElaraWM.
+
+**Windows are stuck off screen.** ElaraWM was killed or crashed before it could put them
+back. Start it again and quit it the ordinary way; that brings every window back on
+screen.
+
+**A key does nothing, or does the wrong thing.** Look at the log ("Show Log" in the menu,
+or the terminal). A bind for an action that is not supported is named there, and so is a
+config that failed to load, in which case the config from before is still in use.
+
+**See what ElaraWM sees, without it managing anything:**
 
 ```sh
 cargo run -p elara-macos --example probe
 ```
 
-## Building
+This prints whether the permission is granted, the displays, and every window with its
+application's bundle identifier, which is what `app-id` in window rules matches.
 
-Requires [rustup](https://rustup.rs). The compiler version is pinned in `rust-toolchain.toml`.
+**Reporting a problem.** Run with `RUST_LOG=elara=debug`, reproduce it, and include the
+log, the macOS version and the application whose window misbehaved.
+
+## Not there yet
+
+- `elara msg` and the IPC socket, niri's way of scripting the window manager.
+- Prebuilt downloads. It has to be built from source.
+- Proper testing on more than one display.
+
+Not planned, since macOS has its own: screenshots and window shadows.
+
+## Building and developing
 
 ```sh
 cargo build
 cargo test --workspace
 ```
+
+The tests need neither a display nor any permission. `CLAUDE.md` describes the layout of
+the code, the rules for code imported from niri, and the checks a change has to pass;
+`UPSTREAM.md` lists every imported file and how it differs from niri's.
 
 ## License
 
