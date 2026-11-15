@@ -47,11 +47,13 @@ const COLUMN_GAP: f64 = 14.;
 /// Between the keys of a binding and the edge of the cap they are drawn on.
 const KEY_PADDING: (f64, f64) = (8., 3.);
 const KEY_RADIUS: f64 = 7.;
-const OPACITY: f64 = 0.94;
-const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.];
+const OPACITY: f64 = 0.85;
+/// #25273A.
+const BACKGROUND: [f32; 4] = [37. / 255., 39. / 255., 58. / 255., 1.];
 const TEXT_COLOR: [f32; 4] = [1., 1., 1., 1.];
 /// The cap behind the keys of a binding.
-const KEY_BACKGROUND: [f32; 4] = [0.2, 0.2, 0.2, 1.];
+/// A lighter shade of the background, #363A4F.
+const KEY_BACKGROUND: [f32; 4] = [54. / 255., 58. / 255., 79. / 255., 1.];
 
 /// Where the list is among the windows on screen: over everything, the menu bar and the
 /// overview included, as niri draws it last.
