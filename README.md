@@ -141,7 +141,8 @@ ELARA_SIGN_IDENTITY="My Certificate Name" tools/bundle-app.sh
 With Xcode installed, the app gets its layered icon with dark and tinted variants. Without
 Xcode, it uses a flat icon.
 
-`CLAUDE.md` describes the code layout and the checks every change has to pass.
+[CONTRIBUTING.md](CONTRIBUTING.md) describes the code layout and the checks every change
+has to pass.
 
 ## License
 
