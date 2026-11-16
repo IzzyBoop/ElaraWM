@@ -5,6 +5,15 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
+## [Unreleased]
+
+### Changed
+
+- **The default config now dresses the overview.** A config created by ElaraWM turns on
+  the wallpaper backdrop with a blur of 16, window opacity of 0.85 and a workspace corner
+  radius of 16, alongside window previews. Existing configs are not touched; to get the
+  same look, copy the `overview` block from the guide.
+
 ## [0.2.1] - 2026-11-16
 
 A bug-fix release for windows that keep their shape, such as QuickTime Player.

@@ -159,23 +159,26 @@ config over unchanged: settings that don't apply on macOS are ignored rather tha
 
 ### Added by ElaraWM
 
-Six settings, all in the `overview` section:
+Six settings, all in the `overview` section. This is how the config ElaraWM creates sets
+them:
 
 ```kdl
 overview {
     window-thumbnails
     backdrop-wallpaper
     // backdrop-image "~/Pictures/wallpaper.jpg"
-    backdrop-blur 20
-    window-opacity 0.9
+    backdrop-blur 16
+    window-opacity 0.85
     workspace-corner-radius 16
 }
 ```
 
+A config that leaves a setting out gets niri's plain look for it: no previews, a plain
+backdrop color, solid windows and square workspaces.
+
 - **`window-thumbnails`** shows window previews in the overview instead of cards, and
   during workspace switches (see [The menu bar limit](#the-menu-bar-limit)). It requires
-  the Screen Recording permission. It's enabled in the config ElaraWM creates and disabled
-  if you leave it out.
+  the Screen Recording permission.
 - **`backdrop-wallpaper`** shows your current macOS wallpaper behind the workspaces, in
   place of `backdrop-color`. Each display uses its own wallpaper, and a change of wallpaper
   is picked up the next time you open the overview. It needs no extra permission. Two

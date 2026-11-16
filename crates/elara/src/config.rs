@@ -192,7 +192,16 @@ mod tests {
             let is_ours = in_our_comment
                 || line.contains(r#"spawn "open" "-a""#)
                 // The one section that is ElaraWM's own addition.
-                || matches!(line, "overview {" | "    window-thumbnails");
+                || matches!(
+                    line,
+                    "overview {"
+                        | "    window-thumbnails"
+                        | "    backdrop-wallpaper"
+                        | r#"    // backdrop-image "~/Pictures/wallpaper.jpg""#
+                        | "    backdrop-blur 16"
+                        | "    window-opacity 0.85"
+                        | "    workspace-corner-radius 16"
+                );
             assert!(
                 is_niri || is_ours,
                 "unexpected line in the default config: {line}"
