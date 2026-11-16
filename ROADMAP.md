@@ -24,7 +24,7 @@ application as it builds today and that.
      Program (paid, yearly). **This is a decision to take first.**
    - signing with the hardened runtime, submitting each release to Apple's notary service
      and stapling the result, as steps of the release script;
-   - taking the "Open Anyway" step and the `xattr` fallback out of the README.
+   - taking the "Open Anyway" step out of the README and the `xattr` fallback out of the guide.
 
    If the decision is no, this item is dropped and the README stays as it is.
 
