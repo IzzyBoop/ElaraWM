@@ -98,6 +98,7 @@ ElaraWM can only move and resize them. As a result:
 
 - [Guide](docs/GUIDE.md): every shortcut and mouse action, configuration details, how
   ElaraWM differs from niri and why, known quirks, troubleshooting and privacy.
+- [Changelog](CHANGELOG.md): what changed in each release.
 - [Roadmap](ROADMAP.md): what's planned.
 - [Upstream](UPSTREAM.md): which code comes from niri and how it differs.
 
