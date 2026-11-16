@@ -661,3 +661,89 @@ fn a_window_that_is_merely_wide_is_not_taken_to_keep_its_shape() {
     let short = frame(&state, id);
     assert_eq!((short.w, short.h), (1200., 500.));
 }
+
+/// A window that answers as QuickTime Player was seen to in a log: with the largest size
+/// of its video's shape that fits in the size it is asked for. In the second column.
+fn open_quicktime(state: &mut State<MockBackend>, ratio: f64) -> WindowId {
+    let _other = open(state, "other");
+    let player = state.backend_mut().open_window_with(
+        "com.apple.QuickTimePlayerX",
+        "movie",
+        Rect::new(300., 200., 960., 624.),
+        |_| {},
+    );
+    state
+        .backend_mut()
+        .set_aspect_ratio(player, ratio, AspectFit::Inside);
+    state.tick();
+    player
+}
+
+#[test]
+fn a_video_window_follows_its_column_in_both_directions() {
+    let ratio = 876. / 569.;
+    let mut state = start(MockBackend::with_laptop_display());
+    let player = open_quicktime(&mut state, ratio);
+
+    let tiled = frame(&state, player);
+    assert_eq!((tiled.w, tiled.h), (COLUMN_W, 569.));
+
+    for width in [578, 876, 1192, 700, 1192] {
+        state.do_action(Action::SetColumnWidth(niri_ipc::SizeChange::SetFixed(
+            width,
+        )));
+        let now = frame(&state, player);
+        assert_eq!(now.w, f64::from(width), "asked for {width}: {now:?}");
+        assert!(has_shape(now, ratio), "asked for {width}: {now:?}");
+        assert!(now.max_y() <= USABLE.max_y(), "asked for {width}: {now:?}");
+    }
+}
+
+#[test]
+fn a_video_window_resized_by_its_edge_can_be_made_wider_again() {
+    // The bug, as the log showed it. Dragging the window's edge pinned its height to what
+    // it was then. Asked for more width at that height, the window stayed as it was, which
+    // was taken for a largest width. From then on it could shrink and never grow.
+    let ratio = 876. / 569.;
+    let mut state = start(MockBackend::with_laptop_display());
+    let player = open_quicktime(&mut state, ratio);
+    let tiled = frame(&state, player);
+
+    // The user pulls its left edge inwards: narrower, and less tall to match.
+    state.system_press(true);
+    for narrower in [100., 220.] {
+        let w = tiled.w - narrower;
+        let dragged = Rect::new(tiled.x + narrower, tiled.y, w, (w / ratio).round());
+        state.backend_mut().user_set_frame(player, dragged);
+        state.tick();
+        assert_eq!(frame(&state, player), dragged);
+    }
+    state.system_press(false);
+    state.tick();
+    let small = frame(&state, player);
+    assert_eq!(small.w, tiled.w - 220.);
+    assert!(has_shape(small, ratio), "{small:?}");
+
+    // Wider again, by the keyboard, to more than it ever was.
+    for width in [876, 1192] {
+        state.do_action(Action::SetColumnWidth(niri_ipc::SizeChange::SetFixed(
+            width,
+        )));
+        let now = frame(&state, player);
+        assert_eq!(now.w, f64::from(width), "asked for {width}: {now:?}");
+        assert!(has_shape(now, ratio), "asked for {width}: {now:?}");
+    }
+
+    // And wider by its edge.
+    let before = frame(&state, player);
+    state.system_press(true);
+    let w = before.w + 150.;
+    let dragged = Rect::new(before.x - 150., before.y, w, (w / ratio).round());
+    state.backend_mut().user_set_frame(player, dragged);
+    state.tick();
+    state.system_press(false);
+    state.tick();
+    let wide = frame(&state, player);
+    assert_eq!(wide.w, before.w + 150.);
+    assert!(has_shape(wide, ratio), "{wide:?}");
+}

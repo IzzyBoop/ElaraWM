@@ -675,6 +675,7 @@ impl<B: WindowBackend> State<B> {
         let before = window.frame();
         let size_changed = window.record_external_frame(frame);
         let is_floating = window.is_floating();
+        let keeps_shape = window.keeps_shape();
         if size_changed && is_floating {
             window.accept_current_size();
         }
@@ -688,7 +689,10 @@ impl<B: WindowBackend> State<B> {
                 let width = SizeChange::SetFixed(frame.w.round() as i32);
                 self.layout.set_window_width(Some(&id), width);
             }
-            if frame.h != before.h {
+            // The height of a window that keeps its shape follows from its width. Pinned
+            // to what it is now, it would hold the window to this size from then on: asked
+            // for more width at the same height, such a window stays as it is.
+            if frame.h != before.h && !keeps_shape {
                 let height = SizeChange::SetFixed(frame.h.round() as i32);
                 self.layout.set_window_height(Some(&id), height);
             }
@@ -860,13 +864,15 @@ impl<B: WindowBackend> State<B> {
                             got = ?actual,
                             "placed window"
                         );
-                        // An answer larger than asked is a smallest size, or the window
-                        // keeping its shape. It is asked once more, for less, to find out
-                        // which, before anything is made of the answer.
-                        if learn_limits && window.suspects_shape(request, actual) {
-                            let probe = Window::shape_probe(request);
+                        // An answer far from what was asked is a limit of the window's, or
+                        // the window keeping its shape. It is asked once more, for a little
+                        // less, to find out which, before anything is made of the answer.
+                        let probe = (learn_limits && window.suspects_shape(request, actual))
+                            .then(|| Window::shape_probe(request))
+                            .flatten();
+                        if let Some(probe) = probe {
                             if let Ok(answer) = self.backend.set_frame(target.id, probe) {
-                                window.record_shape_probe(request, actual, answer);
+                                window.record_shape_probe(request, actual, probe, answer);
                                 debug!(
                                     id = target.id.0,
                                     keeps_shape = window.keeps_shape(),
@@ -888,6 +894,10 @@ impl<B: WindowBackend> State<B> {
                         if resizing && learn_limits && size_of(actual) != size {
                             window.set_settled_for(Some(size));
                             any_response = true;
+                        } else if resizing && size_of(actual) == size {
+                            // It has a new size, so what it settled on before says nothing
+                            // about what it would do if asked for that again.
+                            window.set_settled_for(None);
                         }
                         if request != goal {
                             any_response = true;

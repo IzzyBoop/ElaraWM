@@ -108,6 +108,10 @@ pub const DEFAULT_CORNER_RADIUS: f32 = 16.;
 /// number of character cells, and a cell in a large font is about this big.
 const SIZE_STEP: i32 = 40;
 
+/// How much of a size is asked for again to find out whether a window keeps its shape.
+/// Little enough less to be a small twitch on screen, and enough to tell the answers apart.
+const SHAPE_PROBE: f64 = 0.8;
+
 /// Updates what is known of a window's smallest and largest size along one axis, from the
 /// size it was asked to take and the size it took. Zero means the limit is not known.
 ///
@@ -329,47 +333,61 @@ impl Window {
             )
     }
 
-    /// Whether the window's answer to a request looks like a smallest size, which is also
-    /// what a window that keeps its shape looks like when the side it goes by was asked
-    /// to be larger than the other allows. One more request tells the two apart; see
-    /// [`record_shape_probe()`](Self::record_shape_probe).
+    /// Whether the window's answer to a request is far enough from it to be a limit of the
+    /// window's, which is also what a window that keeps its shape looks like: its answer
+    /// has less of one side than was asked for, or more of the other. One more request
+    /// tells the two apart; see [`record_shape_probe()`](Self::record_shape_probe).
     pub fn suspects_shape(&self, request: Rect, actual: Rect) -> bool {
         let (asked, got) = (size_of(request), size_of(actual));
+        let far = |asked: i32, got: i32| (got - asked).abs() > SIZE_STEP;
         self.inner.resizable
             && !self.inner.shape_known.get()
-            && (got.w > asked.w + SIZE_STEP || got.h > asked.h + SIZE_STEP)
+            && (far(asked.w, got.w) || far(asked.h, got.h))
     }
 
-    /// The request that finds out whether the window keeps its shape: for half the size
-    /// asked for before, in both directions.
-    pub fn shape_probe(request: Rect) -> Rect {
-        let half = |length: f64| (length / 2.).round().max(120.);
-        Rect::new(request.x, request.y, half(request.w), half(request.h))
+    /// The request that finds out whether the window keeps its shape: for somewhat less
+    /// than was asked for before, in both directions. `None` if the request was for so
+    /// little that the answers could not be told apart.
+    pub fn shape_probe(request: Rect) -> Option<Rect> {
+        let less = |length: f64| (length * SHAPE_PROBE).round();
+        let telling = |length: f64| length - less(length) > 2. * f64::from(SIZE_STEP);
+        (telling(request.w) && telling(request.h))
+            .then(|| Rect::new(request.x, request.y, less(request.w), less(request.h)))
     }
 
-    /// Records the window's answer to [`shape_probe()`](Self::shape_probe), having
-    /// answered `first` to the request before it.
+    /// Records the window's answer to `probe`, which came from
+    /// [`shape_probe()`](Self::shape_probe), having answered `first` to `request`.
     ///
-    /// A window with a smallest size answers with that size again. One that keeps its
-    /// shape answers with a smaller size of the same shape, so what looked like a smallest
-    /// width or height has moved.
-    pub fn record_shape_probe(&self, request: Rect, first: Rect, answer: Rect) {
+    /// A window with a limit answers the same way twice: with the limit again, or, where
+    /// the second request is within it, with what was asked. One that keeps its shape
+    /// answers with a size that is neither, since it follows from the other side.
+    pub fn record_shape_probe(&self, request: Rect, first: Rect, probe: Rect, answer: Rect) {
         let inner = &self.inner;
-        let (asked, first, got) = (size_of(request), size_of(first), size_of(answer));
-        let moved =
-            |asked: i32, first: i32, got: i32| first > asked + SIZE_STEP && got < first - SIZE_STEP;
-        let keeps_shape = moved(asked.w, first.w, got.w) || moved(asked.h, first.h, got.h);
+        let (asked, first) = (size_of(request), size_of(first));
+        let (probed, got) = (size_of(probe), size_of(answer));
+        let far = |a: i32, b: i32| (a - b).abs() > SIZE_STEP;
+        let follows = |asked: i32, first: i32, probed: i32, got: i32| {
+            far(asked, first) && far(got, first) && far(got, probed)
+        };
+        let keeps_shape = follows(asked.w, first.w, probed.w, got.w)
+            || follows(asked.h, first.h, probed.h, got.h);
+
         inner.shape_known.set(true);
-        if keeps_shape && got.w > 0 && got.h > 0 {
-            inner.aspect.set(Some(f64::from(got.w) / f64::from(got.h)));
-            // Whatever was taken for a limit before was the shape.
-            if inner.resizable {
-                inner.min_size.set(Size::default());
-                inner.max_size.set(Size::default());
-            }
-            inner.refusals.set([None; 2]);
-            inner.settled_for.set(None);
+        if !keeps_shape || got.w <= 0 || got.h <= 0 {
+            return;
         }
+        // The first answer is the larger and so the more exact, unless it was more than
+        // was asked for, where the edge of the display may have cut it short.
+        let within = first.w <= asked.w + SIZE_STEP && first.h <= asked.h + SIZE_STEP;
+        let shape = if within && first.h > 0 { first } else { got };
+        inner
+            .aspect
+            .set(Some(f64::from(shape.w) / f64::from(shape.h)));
+        // Whatever was taken for a limit before was the shape.
+        inner.min_size.set(Size::default());
+        inner.max_size.set(Size::default());
+        inner.refusals.set([None; 2]);
+        inner.settled_for.set(None);
     }
 
     /// Whether the window keeps its shape whatever size it is asked for.
@@ -387,10 +405,13 @@ impl Window {
         if frame.w <= 0. || frame.h <= 0. {
             return frame;
         }
+        // The side that follows is rounded up. A point too little would make it the side
+        // the window goes by, and the other would come out a point short of what the
+        // layout asked for; a point too much the window simply does not take.
         if frame.w / frame.h > ratio {
-            Rect::new(frame.x, frame.y, (frame.h * ratio).round(), frame.h)
+            Rect::new(frame.x, frame.y, (frame.h * ratio).ceil(), frame.h)
         } else {
-            Rect::new(frame.x, frame.y, frame.w, (frame.w / ratio).round())
+            Rect::new(frame.x, frame.y, frame.w, (frame.w / ratio).ceil())
         }
     }
 

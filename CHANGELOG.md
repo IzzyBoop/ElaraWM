@@ -9,11 +9,14 @@ behavior.
 
 ### Fixed
 
-- **QuickTime Player windows got stuck at one size when tiled**, often as wide as the
-  screen, and ignored every resize. A window that keeps the shape of its video answers a
-  request for a tall, narrow size with a much larger one, which ElaraWM took for a
-  minimum size. It now recognizes such windows and only asks them for sizes of their own
-  shape, so they fit their column and resize with it.
+- **QuickTime Player windows got stuck when tiled.** After being resized, most easily by
+  dragging an edge, a QuickTime window could be made smaller but never larger again. A
+  window that keeps the shape of its video does not take the size it is asked for, and
+  ElaraWM mistook its answers for size limits. It now recognizes such windows, only asks
+  them for sizes of their own shape, and lets their height follow their width, so they
+  fit their column and resize with it in both directions.
+- A window that had once settled on a size of its own could ignore a later request for
+  that same size.
 
 ## [0.2.0] - 2026-11-16
 
