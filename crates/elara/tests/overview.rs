@@ -535,6 +535,8 @@ fn workspaces_can_have_round_corners_and_a_see_through_background() {
 #[test]
 fn workspaces_are_square_unless_the_config_rounds_them() {
     let (mut state, _) = two_workspaces();
+    // The default config file rounds them; a config that says nothing does not.
+    state.set_config(Config::parse_mem("").unwrap());
     state.do_action(Action::ToggleOverview);
     state.tick();
     let workspaces = &overview(&state).displays[0].workspaces;
@@ -562,4 +564,27 @@ fn the_backdrop_can_be_the_desktop_picture() {
     state.tick();
     let image = overview(&state).backdrop_image.clone().expect("an image");
     assert!(matches!(image.source, BackdropSource::File(_)), "{image:?}");
+}
+
+#[test]
+fn the_default_config_file_dresses_the_overview() {
+    // What a new user gets: the wallpaper behind the workspaces, blurred, with see-through
+    // windows on rounded workspaces.
+    let (mut state, _) = two_workspaces();
+    state.do_action(Action::ToggleOverview);
+    for _ in 0..40 {
+        state.tick();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let overview = overview(&state);
+    let image = overview.backdrop_image.clone().expect("a backdrop");
+    assert_eq!(image.source, BackdropSource::DesktopPicture);
+    assert_eq!(image.blur, 16.);
+    assert_eq!(overview.window_opacity, 0.85);
+    assert!(overview.thumbnails.is_some());
+    let workspaces = &overview.displays[0].workspaces;
+    assert!(
+        workspaces.iter().all(|ws| ws.corner_radius == 16.),
+        "{workspaces:?}"
+    );
 }
