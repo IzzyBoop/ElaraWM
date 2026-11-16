@@ -25,7 +25,8 @@ Protection enabled and uses no private APIs.
 - **niri's config format.** An existing niri `config.kdl` works as is, and changes are
   picked up as soon as you save.
 - **Focus ring, borders and tab indicators**, with gradient support.
-- **An overview** of all your workspaces, with live window previews.
+- **An overview** of all your workspaces, with live window previews and an optional
+  background image.
 - **Smooth animations** when you scroll, switch workspaces or rearrange windows.
 - **Mouse support**: drag a window's edge to resize it, or hold Option and drag to move it.
 - **A menu bar item** that shows the current workspace, with an option to start at login.

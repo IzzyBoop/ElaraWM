@@ -2,6 +2,7 @@
 
 mod app;
 mod ax;
+mod backdrop;
 mod backend;
 mod display;
 mod ghosts;

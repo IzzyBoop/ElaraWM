@@ -389,6 +389,11 @@ window-rule {
 // is opened, and ElaraWM has to be started again once the permission is granted.
 // Without the permission, or with this commented out, the overview shows each window
 // as a card with its application's icon and its title.
+//
+// Three more settings can go in this section, all ElaraWM's own:
+//     backdrop-image "~/Pictures/wallpaper.jpg"   an image behind the workspaces
+//     backdrop-blur 20                            how far to blur that image
+//     window-opacity 0.9                          how solid the windows are, 0 to 1
 overview {
     window-thumbnails
 }

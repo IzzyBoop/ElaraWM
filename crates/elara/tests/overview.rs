@@ -450,3 +450,59 @@ fn the_overview_zooms_out_gradually_and_the_windows_wait_under_it() {
         .count();
     assert_eq!(moves_of_c, 1);
 }
+
+#[test]
+fn the_config_sets_an_image_behind_the_workspaces_and_how_solid_the_windows_are() {
+    let (mut state, _) = two_workspaces();
+    state.set_config(Config::parse_mem("").unwrap());
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+    // Nothing asked for: no image, and windows as solid as they are.
+    assert_eq!(overview(&state).backdrop_image, None);
+    assert_eq!(overview(&state).window_opacity, 1.);
+
+    let config = Config::parse_mem(
+        r#"
+        overview {
+            backdrop-image "/Library/Pictures/hills.jpg"
+            backdrop-blur 20
+            window-opacity 0.8
+        }
+        "#,
+    )
+    .unwrap();
+    state.set_config(config);
+    state.tick();
+    let image = overview(&state).backdrop_image.clone().expect("an image");
+    assert_eq!(
+        image.path,
+        std::path::Path::new("/Library/Pictures/hills.jpg")
+    );
+    assert_eq!(image.blur, 20.);
+    assert_eq!(overview(&state).window_opacity, 0.8);
+}
+
+#[test]
+fn a_backdrop_image_under_the_home_directory_can_be_named_with_a_tilde() {
+    let (mut state, _) = two_workspaces();
+    let config =
+        Config::parse_mem("overview {\n backdrop-image \"~/Pictures/hills.jpg\"\n}").unwrap();
+    state.set_config(config);
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+
+    let image = overview(&state).backdrop_image.clone().expect("an image");
+    let home = std::env::var_os("HOME").expect("a home directory");
+    assert_eq!(
+        image.path,
+        std::path::Path::new(&home).join("Pictures/hills.jpg")
+    );
+    // Sharp unless the config says otherwise.
+    assert_eq!(image.blur, 0.);
+}
+
+#[test]
+fn settings_out_of_range_are_an_error_in_the_config() {
+    assert!(Config::parse_mem("overview {\n window-opacity 1.5\n}").is_err());
+    assert!(Config::parse_mem("overview {\n backdrop-blur -3\n}").is_err());
+}

@@ -1692,6 +1692,9 @@ mod tests {
                     },
                 },
                 window_thumbnails: false,
+                backdrop_image: None,
+                backdrop_blur: 0.0,
+                window_opacity: 1.0,
             },
             environment: Environment(
                 [

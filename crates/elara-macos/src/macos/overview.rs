@@ -27,10 +27,11 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{NSObjectProtocol, NSString};
 use objc2_quartz_core::{
-    kCAAlignmentCenter, kCAGravityResizeAspect, kCATruncationEnd, CALayer, CATextLayer,
-    CATransaction,
+    kCAAlignmentCenter, kCAGravityResizeAspect, kCAGravityResizeAspectFill, kCATruncationEnd,
+    CALayer, CATextLayer, CATransaction,
 };
 
+use super::backdrop::{render_for, Backdrops};
 use super::overlay::{appkit_rect, OutlineLayer};
 use crate::{
     DisplayId, DisplayInfo, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, Overview,
@@ -369,10 +370,23 @@ impl Card {
     }
 }
 
+/// How the overview looks on one display, apart from what is on it.
+struct Look {
+    /// The color behind the workspaces.
+    backdrop: [f32; 4],
+    /// The image over that color, as this display shows it.
+    backdrop_image: Option<CFRetained<CGImage>>,
+    /// How opaque the windows are.
+    window_opacity: f32,
+}
+
 /// The layers that draw one display's part of the overview.
 struct Scene {
     /// Covers the display and is filled with the backdrop.
     root: Retained<CALayer>,
+    /// The backdrop image, under everything else, and the image it shows.
+    backdrop: Retained<CALayer>,
+    backdrop_shown: Option<CFRetained<CGImage>>,
     workspaces: Vec<Retained<CALayer>>,
     shapes: Vec<OutlineLayer>,
     cards: HashMap<WindowId, Card>,
@@ -380,8 +394,18 @@ struct Scene {
 
 impl Scene {
     fn new() -> Self {
+        let root = CALayer::new();
+        let backdrop = CALayer::new();
+        // SAFETY: the gravity is a valid static. The image has the shape of the display
+        // or, if it is shown as it came, is cut to it.
+        backdrop.setContentsGravity(unsafe { kCAGravityResizeAspectFill });
+        backdrop.setHidden(true);
+        // The first layer in, so the one at the bottom.
+        root.addSublayer(&backdrop);
         Self {
-            root: CALayer::new(),
+            root,
+            backdrop,
+            backdrop_shown: None,
             workspaces: Vec::new(),
             shapes: Vec::new(),
             cards: HashMap::new(),
@@ -393,7 +417,7 @@ impl Scene {
     fn update(
         &mut self,
         display: &DisplayInfo,
-        backdrop: [f32; 4],
+        look: Look,
         part: Option<&OverviewDisplay>,
         style: &Style,
         icon: &mut dyn FnMut(WindowId) -> Option<Retained<NSImage>>,
@@ -404,9 +428,24 @@ impl Scene {
             CGSize::new(display.frame.w, display.frame.h),
         );
         self.root.setFrame(bounds);
-        self.root.setBackgroundColor(Some(&cg_color(backdrop)));
+        self.root.setBackgroundColor(Some(&cg_color(look.backdrop)));
         // A workspace that is partly out of view at the top or bottom ends at the display.
         self.root.setMasksToBounds(true);
+
+        self.backdrop.setFrame(bounds);
+        if self.backdrop_shown != look.backdrop_image {
+            // SAFETY: an image is one of the kinds of object a layer accepts as its
+            // contents, and Core Foundation objects are Objective-C objects.
+            unsafe {
+                let image = look
+                    .backdrop_image
+                    .as_ref()
+                    .map(|image| &*CFRetained::as_ptr(image).as_ptr().cast::<AnyObject>());
+                self.backdrop.setContents(image);
+            }
+            self.backdrop.setHidden(look.backdrop_image.is_none());
+            self.backdrop_shown = look.backdrop_image;
+        }
 
         // Layers measure from the bottom left of their parent; the overview measures from
         // the top left of the desktop.
@@ -483,6 +522,7 @@ impl Scene {
                     });
                     card.set_picture(style, pictures(window.id));
                     card.update(local(window.rect), window);
+                    card.layer.setOpacity(look.window_opacity.clamp(0., 1.));
                     card.layer.setZPosition(z);
                     present.push(window.id);
                 }
@@ -574,6 +614,8 @@ pub struct OverviewPanels {
     shown: bool,
     /// Icons by process, kept while the overview is showing.
     icons: HashMap<i32, Option<Retained<NSImage>>>,
+    /// The backdrop image as each display shows it, kept from one showing to the next.
+    backdrops: Backdrops,
 }
 
 impl OverviewPanels {
@@ -590,6 +632,7 @@ impl OverviewPanels {
             surfaces: Vec::new(),
             shown: false,
             icons: HashMap::new(),
+            backdrops: Backdrops::new(),
         }
     }
 
@@ -638,6 +681,12 @@ impl OverviewPanels {
         PRIMARY_HEIGHT.set(primary_height);
         let style = Style::current(self.mtm);
 
+        self.backdrops.retain(displays);
+        if !self.shown {
+            // The file may have been replaced since the overview was last open.
+            self.backdrops.forget_changed();
+        }
+
         CATransaction::begin();
         // The layout animates the overview frame by frame; nothing eases on its own.
         CATransaction::setDisableActions(true);
@@ -663,9 +712,18 @@ impl OverviewPanels {
 
             let part = overview.displays.iter().find(|d| d.display == display.id);
             let icons = &mut self.icons;
+            let backdrop_image = overview
+                .backdrop_image
+                .as_ref()
+                .and_then(|image| self.backdrops.get(display, image));
+            let look = Look {
+                backdrop: overview.backdrop,
+                backdrop_image,
+                window_opacity: overview.window_opacity,
+            };
             surface.scene.update(
                 display,
-                overview.backdrop,
+                look,
                 part,
                 &style,
                 &mut |id| {
@@ -719,9 +777,18 @@ pub fn render_overview(
     let style = Style::current(mtm);
     let mut scene = Scene::new();
     let part = overview.displays.iter().find(|d| d.display == display.id);
+    let backdrop_image = overview
+        .backdrop_image
+        .as_ref()
+        .and_then(|image| render_for(display, image));
+    let look = Look {
+        backdrop: overview.backdrop,
+        backdrop_image,
+        window_opacity: overview.window_opacity,
+    };
     scene.update(
         display,
-        overview.backdrop,
+        look,
         part,
         &style,
         &mut |id| icon_of(pid_of(id)?),
