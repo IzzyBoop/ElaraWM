@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 description = "A scrollable-tiling window manager for macOS, ported from niri"
 authors = ["IzzyBoop", "Ivan Molodetskikh <yalterz@gmail.com>"]
 license = "GPL-3.0-or-later"
