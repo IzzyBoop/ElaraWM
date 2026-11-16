@@ -5,18 +5,40 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
-## [Unreleased]
+## [0.2.1] - 2026-11-16
+
+A bug-fix release for windows that keep their shape, such as QuickTime Player.
 
 ### Fixed
 
-- **QuickTime Player windows got stuck when tiled.** After being resized, most easily by
-  dragging an edge, a QuickTime window could be made smaller but never larger again. A
-  window that keeps the shape of its video does not take the size it is asked for, and
-  ElaraWM mistook its answers for size limits. It now recognizes such windows, only asks
-  them for sizes of their own shape, and lets their height follow their width, so they
-  fit their column and resize with it in both directions.
-- A window that had once settled on a size of its own could ignore a later request for
-  that same size.
+- **QuickTime Player windows got stuck at one size when tiled.** After a QuickTime window
+  was resized, most easily by dragging one of its edges, it could be made smaller but
+  never larger again, and it ignored the column width shortcuts. Making it float freed it.
+
+  The cause: a video window keeps the shape of its video. Asked for a size, QuickTime
+  takes the largest size of that shape that fits inside it, so it rarely takes exactly
+  what it is asked for. Dragging its edge pinned its height in the layout. Asked afterwards
+  for more width at that height, the window couldn't comply, and ElaraWM took that for a
+  maximum width. Every later resize lowered that limit further.
+
+  ElaraWM now recognizes windows that keep their shape and treats them accordingly:
+  - It learns no size limits from them.
+  - It only asks them for sizes of their own shape.
+  - Dragging an edge sets the column's width and lets the height follow.
+
+  Such a window is as wide as its column and as tall as its shape allows, and it resizes
+  with the column in both directions, by keyboard or by dragging an edge.
+
+- **A window could ignore a request for a size it had once declined.** If a window had
+  settled on a size of its own instead of the one requested, that request stayed
+  remembered even after the window took other sizes, and asking for it again did nothing.
+  This affected any window, not only video players.
+
+### Notes
+
+- To tell a window that keeps its shape from one with a real size limit, ElaraWM asks it
+  for a slightly smaller size once, the first time its answer differs a lot from the
+  request. You may see such a window twitch once when it is first tiled.
 
 ## [0.2.0] - 2026-11-16
 
@@ -112,5 +134,6 @@ The first release. An early beta, in daily use on one Mac with a single display.
 - Opening, closing and resizing windows aren't animated.
 - Other applications' shadows, opacity and corner radius can't be changed.
 
+[0.2.1]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/IzzyBoop/ElaraWM/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/IzzyBoop/ElaraWM/releases/tag/v0.1.0
