@@ -126,7 +126,9 @@ permission granted; say so plainly when a change there has not been run that way
 
 `tools/release.sh` builds `ElaraWM.app` and zips it as
 `target/release/ElaraWM-<version>-<arch>.zip`; the version is the one in `Cargo.toml`. Tag
-the commit `v<version>` and attach the zip to a GitHub release. Always sign with the same
+the commit `v<version>` and attach the zip to a GitHub release. Before that, bump the
+version in the workspace `Cargo.toml` and add the release to `CHANGELOG.md`, which is
+written for users: what they can now do, not which files changed. Always sign with the same
 identity. Making a release publishes it: do it only when asked.
 
 ## Toolchain

@@ -9,7 +9,7 @@ works today.
 application as it builds today and that.
 
 1. **A place to download it from.** The repository is on GitHub, private for now, with a
-   first release, 0.1.0, and the README links to its Releases page. Still to do: make the
+   releases from 0.1.0 on, and the README links to its Releases page. Still to do: make the
    repository public, without which nobody else can reach the download.
 
 2. **A release script.** `tools/release.sh` builds the application, checks its signature

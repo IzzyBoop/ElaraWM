@@ -3,3 +3,5 @@
 *.snap.new
 .vscode/
 .idea/
+.*.pending-snap
+*.pending-snap
