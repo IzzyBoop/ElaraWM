@@ -3,7 +3,7 @@
 
 use elara::State;
 use elara_macos::{
-    DisplayId, DisplayInfo, MockBackend, Rect, Size, WindowBackend, WindowId, WindowKind,
+    AspectFit, DisplayId, DisplayInfo, MockBackend, Rect, Size, WindowBackend, WindowId, WindowKind,
 };
 use niri_config::{Action, Config};
 
@@ -522,4 +522,142 @@ fn a_tiled_window_dragged_away_is_put_back_when_it_is_let_go() {
     state.system_press(false);
     state.tick();
     assert_eq!(frame(&state, a), was);
+}
+
+/// A window like QuickTime Player's: whatever size it is asked for, it keeps the shape of
+/// its video. `fit` is what it makes of a request for another shape.
+fn open_player(state: &mut State<MockBackend>, fit: AspectFit) -> WindowId {
+    let id = state.backend_mut().open_window_with(
+        "com.apple.QuickTimePlayerX",
+        "movie",
+        Rect::new(300., 200., 960., 540.),
+        |_| {},
+    );
+    state.backend_mut().set_aspect_ratio(id, 16. / 9., fit);
+    state.tick();
+    id
+}
+
+const FITS: [AspectFit; 3] = [AspectFit::Inside, AspectFit::Width, AspectFit::Height];
+
+fn has_shape(frame: Rect, ratio: f64) -> bool {
+    (frame.w / frame.h - ratio).abs() < 0.02
+}
+
+/// Whether the window is where it can be seen whole: in the usable area of the screen.
+fn in_view(frame: Rect) -> bool {
+    USABLE.contains_rect(&frame)
+}
+
+#[test]
+fn a_window_that_keeps_its_shape_fits_its_column() {
+    for fit in FITS {
+        let mut state = start(MockBackend::with_laptop_display());
+        let player = open_player(&mut state, fit);
+
+        let tiled = frame(&state, player);
+        assert!(has_shape(tiled, 16. / 9.), "{fit:?}: {tiled:?}");
+        // As wide as the column, and as tall as goes with that.
+        assert_eq!(tiled.x, column(0).x, "{fit:?}: {tiled:?}");
+        assert_eq!(tiled.w, COLUMN_W, "{fit:?}: {tiled:?}");
+        assert!(in_view(tiled), "{fit:?}: {tiled:?}");
+    }
+}
+
+#[test]
+fn a_window_that_keeps_its_shape_can_still_be_resized() {
+    for fit in FITS {
+        let mut state = start(MockBackend::with_laptop_display());
+        let player = open_player(&mut state, fit);
+        let before = frame(&state, player);
+
+        // Wider: as wide as there is room for with the height that goes with it.
+        state.do_action(Action::MaximizeColumn);
+        let wide = frame(&state, player);
+        assert!(
+            wide.w > before.w + 100.,
+            "{fit:?}: {before:?} then {wide:?}"
+        );
+        assert!(has_shape(wide, 16. / 9.), "{fit:?}: {wide:?}");
+        assert!(in_view(wide), "{fit:?}: {wide:?}");
+
+        // And back.
+        state.do_action(Action::MaximizeColumn);
+        assert_eq!(frame(&state, player), before, "{fit:?}");
+
+        // Narrower.
+        state.do_action(Action::SetColumnWidth(niri_ipc::SizeChange::SetFixed(400)));
+        let narrow = frame(&state, player);
+        assert_eq!(narrow.w, 400., "{fit:?}: {narrow:?}");
+        assert!(has_shape(narrow, 16. / 9.), "{fit:?}: {narrow:?}");
+
+        // And wider again, past where it started.
+        state.do_action(Action::SetColumnWidth(niri_ipc::SizeChange::SetFixed(1200)));
+        let wider = frame(&state, player);
+        assert_eq!(wider.w, 1200., "{fit:?}: {wider:?}");
+        assert!(has_shape(wider, 16. / 9.), "{fit:?}: {wider:?}");
+        assert!(in_view(wider), "{fit:?}: {wider:?}");
+    }
+}
+
+#[test]
+fn a_window_that_keeps_its_shape_shares_a_column() {
+    for fit in FITS {
+        let mut state = start(MockBackend::with_laptop_display());
+        let other = open(&mut state, "other");
+        let player = open_player(&mut state, fit);
+        state.do_action(Action::ConsumeOrExpelWindowLeft);
+
+        let (top, bottom) = (frame(&state, other), frame(&state, player));
+        assert_eq!(top.x, bottom.x, "{fit:?}");
+        assert!(has_shape(bottom, 16. / 9.), "{fit:?}: {bottom:?}");
+        // Neither on top of the other, and both on screen.
+        assert!(bottom.y >= top.max_y(), "{fit:?}: {top:?} {bottom:?}");
+        assert!(
+            in_view(top) && in_view(bottom),
+            "{fit:?}: {top:?} {bottom:?}"
+        );
+    }
+}
+
+#[test]
+fn a_window_that_is_merely_short_is_not_taken_to_keep_its_shape() {
+    // It will not go above 300 high, whatever its width: a limit, not a shape.
+    let mut state = start(MockBackend::with_laptop_display());
+    let id = open(&mut state, "short");
+    let max = Size { w: 5000., h: 300. };
+    state
+        .backend_mut()
+        .set_size_limits(id, Size { w: 1., h: 1. }, Some(max));
+    state.do_action(Action::MaximizeColumn);
+    state.do_action(Action::MaximizeColumn);
+    let narrow = frame(&state, id);
+    assert_eq!((narrow.w, narrow.h), (COLUMN_W, 300.));
+
+    state.do_action(Action::MaximizeColumn);
+    let wide = frame(&state, id);
+    // Twice as wide and no taller.
+    assert!(wide.w > narrow.w + 100.);
+    assert_eq!(wide.h, 300.);
+}
+
+#[test]
+fn a_window_that_is_merely_wide_is_not_taken_to_keep_its_shape() {
+    // It will not go below 1200 wide, whatever its height: a limit, not a shape. It gives
+    // the same first answer as a player that goes by the height it is asked for.
+    let mut state = start(MockBackend::with_laptop_display());
+    let id = open(&mut state, "wide");
+    let min = Size { w: 1200., h: 100. };
+    state.backend_mut().set_size_limits(id, min, None);
+    state.do_action(Action::MaximizeColumn);
+    state.do_action(Action::MaximizeColumn);
+
+    // As narrow as it goes, and as tall as the column.
+    let narrow = frame(&state, id);
+    assert_eq!((narrow.w, narrow.h), (1200., COLUMN_H));
+
+    // It still takes the height it is given, which a window that keeps its shape would not.
+    state.do_action(Action::SetWindowHeight(niri_ipc::SizeChange::SetFixed(500)));
+    let short = frame(&state, id);
+    assert_eq!((short.w, short.h), (1200., 500.));
 }

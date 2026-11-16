@@ -15,6 +15,20 @@ struct MockWindow {
     max_size: Option<Size>,
     /// The step the window's height moves in, if it only takes some heights.
     height_step: Option<f64>,
+    /// Width over height, if the window keeps its shape whatever size it is asked for, as
+    /// a video player does, and which side of a request it goes by.
+    aspect_ratio: Option<(f64, AspectFit)>,
+}
+
+/// How a window that keeps its shape answers a request for a size of another shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AspectFit {
+    /// The largest size of its shape that fits in the one asked for.
+    Inside,
+    /// The width asked for, and the height that goes with it, however tall.
+    Width,
+    /// The height asked for, and the width that goes with it, however wide.
+    Height,
 }
 
 /// A [`WindowBackend`] that keeps windows and displays in memory.
@@ -133,6 +147,7 @@ impl MockBackend {
                 min_size: Size { w: 1., h: 1. },
                 max_size: None,
                 height_step: None,
+                aspect_ratio: None,
             },
         );
         self.events.push(Event::WindowOpened(info));
@@ -152,6 +167,14 @@ impl MockBackend {
     pub fn set_height_step(&mut self, id: WindowId, step: f64) {
         if let Some(window) = self.windows.get_mut(&id) {
             window.height_step = Some(step);
+        }
+    }
+
+    /// Makes the window keep `ratio`, its width over its height, as a video player does.
+    /// `fit` says what it makes of a request for a size of another shape.
+    pub fn set_aspect_ratio(&mut self, id: WindowId, ratio: f64, fit: AspectFit) {
+        if let Some(window) = self.windows.get_mut(&id) {
+            window.aspect_ratio = Some((ratio, fit));
         }
     }
 
@@ -269,6 +292,19 @@ impl MockBackend {
             frame.y = requested.y;
         }
         if window.info.resizable {
+            let mut requested = requested;
+            if let Some((ratio, fit)) = window.aspect_ratio {
+                let by_height = match fit {
+                    AspectFit::Inside => requested.w / requested.h > ratio,
+                    AspectFit::Width => false,
+                    AspectFit::Height => true,
+                };
+                if by_height {
+                    requested.w = (requested.h * ratio).round();
+                } else {
+                    requested.h = (requested.w / ratio).round();
+                }
+            }
             let mut w = requested.w.max(window.min_size.w);
             let mut h = requested.h;
             if let Some(step) = window.height_step {

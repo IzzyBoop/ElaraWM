@@ -794,14 +794,17 @@ impl<B: WindowBackend> State<B> {
                 // second time. It is moved to its place with the size it has. Asking again
                 // there would do harm where the place is out of sight: a resize is cut short
                 // at the edge of the display, and all but a corner of the window is past it.
-                let size = size_of(target.frame);
+                // A window that keeps its shape is asked for the size of that shape that
+                // fits where the layout has it.
+                let frame = window.fit(target.frame);
+                let size = size_of(frame);
                 let current = window.frame();
                 let settled = size != size_of(current) && window.settled_for() == Some(size);
                 let resizing = size != size_of(current) && !settled;
                 let goal = if settled {
-                    Rect::new(target.frame.x, target.frame.y, current.w, current.h)
+                    Rect::new(frame.x, frame.y, current.w, current.h)
                 } else {
-                    target.frame
+                    frame
                 };
                 let request = if resizing && target.hidden {
                     // A window that is to be out of sight cannot change size there, and
@@ -857,6 +860,26 @@ impl<B: WindowBackend> State<B> {
                             got = ?actual,
                             "placed window"
                         );
+                        // An answer larger than asked is a smallest size, or the window
+                        // keeping its shape. It is asked once more, for less, to find out
+                        // which, before anything is made of the answer.
+                        if learn_limits && window.suspects_shape(request, actual) {
+                            let probe = Window::shape_probe(request);
+                            if let Ok(answer) = self.backend.set_frame(target.id, probe) {
+                                window.record_shape_probe(request, actual, answer);
+                                debug!(
+                                    id = target.id.0,
+                                    keeps_shape = window.keeps_shape(),
+                                    "asked a window whether it keeps its shape"
+                                );
+                                // Where it is now is not where it belongs. The next round
+                                // asks again, knowing what it is dealing with.
+                                window.record_response(probe, answer, false);
+                                self.layout.update_window(&target.id, None);
+                                any_response = true;
+                                continue;
+                            }
+                        }
                         if window.record_response(request, actual, learn_limits) {
                             self.layout.update_window(&target.id, None);
                             any_response = true;
@@ -874,7 +897,7 @@ impl<B: WindowBackend> State<B> {
                         // The window may be closing or its application hung. Its events will
                         // say which; until then, do not hammer it.
                         debug!(id = ?target.id, %err, "could not place window");
-                        window.record_response(target.frame, window.frame(), false);
+                        window.record_response(frame, window.frame(), false);
                     }
                 }
             }

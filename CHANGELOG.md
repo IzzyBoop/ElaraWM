@@ -5,6 +5,16 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
+## [Unreleased]
+
+### Fixed
+
+- **QuickTime Player windows got stuck at one size when tiled**, often as wide as the
+  screen, and ignored every resize. A window that keeps the shape of its video answers a
+  request for a tall, narrow size with a much larger one, which ElaraWM took for a
+  minimum size. It now recognizes such windows and only asks them for sizes of their own
+  shape, so they fit their column and resize with it.
+
 ## [0.2.0] - 2026-11-16
 
 This release is about the overview: it can now sit on your wallpaper or an image of your
