@@ -24,7 +24,7 @@ compositor by Ivan Molodetskikh and contributors, licensed GPL-3.0-or-later.
 
 1. Diff upstream between the tag recorded here and the new tag, limited to the imported paths.
 2. Apply the upstream changes to the imported files, keeping `// ELARA:` divergences.
-3. Run the full merge gate (see `CLAUDE.md`).
+3. Run the full set of checks (see `CONTRIBUTING.md`).
 4. Update the tag and commit in the table above.
 
 ## Imported files

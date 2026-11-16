@@ -5,3 +5,10 @@
 .idea/
 .*.pending-snap
 *.pending-snap
+
+# Notes for AI coding assistants and session handoffs. Kept on the machine, not published.
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+HANDOFF.md
+.claude/
