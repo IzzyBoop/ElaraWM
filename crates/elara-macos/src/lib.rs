@@ -28,8 +28,8 @@ pub use geometry::{Point, Rect, Size};
 pub use gradient::{ColorSpace, Gradient, HueInterpolation};
 #[cfg(target_os = "macos")]
 pub use macos::{
-    accessibility_trusted, alert, bundle_identifier, character_for_keycode, displays,
-    displays_have_separate_spaces, rasterize, render_hotkey_overlay, render_overview,
+    accessibility_trusted, alert, bundle_identifier, character_for_keycode, desktop_picture,
+    displays, displays_have_separate_spaces, rasterize, render_hotkey_overlay, render_overview,
     request_accessibility, request_screen_recording, run as run_main_loop,
     screen_recording_permitted, set_start_at_login, start_at_login, take_overview_input,
     HotkeyOverlayPanels, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay, OverviewPanels, Wake,
@@ -219,8 +219,7 @@ impl Default for Overview {
 /// sides or at top and bottom where the display has another shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackdropImage {
-    /// The file, in any format the system reads.
-    pub path: std::path::PathBuf,
+    pub source: BackdropSource,
     /// How far to blur the image, in points. Zero leaves it as it is.
     pub blur: f64,
 }
@@ -233,6 +232,16 @@ pub struct OverviewDisplay {
     pub workspaces: Vec<OverviewWorkspace>,
     /// Windows and what niri draws around them. Later ones are drawn over earlier ones.
     pub items: Vec<OverviewItem>,
+}
+
+/// Where the image behind the workspaces of the overview comes from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackdropSource {
+    /// A file, in any format the system reads.
+    File(std::path::PathBuf),
+    /// The desktop picture the system shows on the display, looked up each time the
+    /// overview opens. Where the system names none, the backdrop color shows.
+    DesktopPicture,
 }
 
 /// A workspace in the overview: a rectangle the shape of the display.

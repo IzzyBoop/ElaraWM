@@ -130,6 +130,9 @@ pub struct Overview {
     // ELARA: not in niri, where the backdrop is a color or a layer-shell wallpaper. An
     // image to show behind the workspaces in place of the backdrop color.
     pub backdrop_image: Option<String>,
+    // ELARA: whether to show the desktop picture of macOS behind the workspaces, where no
+    // `backdrop_image` is set.
+    pub backdrop_wallpaper: bool,
     // ELARA: how far to blur the backdrop image, in logical pixels. Zero leaves it sharp.
     pub backdrop_blur: f64,
     // ELARA: how opaque the windows are in the overview, from 0 to 1.
@@ -147,6 +150,7 @@ impl Default for Overview {
             workspace_shadow: WorkspaceShadow::default(),
             window_thumbnails: false,
             backdrop_image: None,
+            backdrop_wallpaper: false,
             backdrop_blur: 0.,
             window_opacity: 1.,
             workspace_corner_radius: 0.,
@@ -169,6 +173,8 @@ pub struct OverviewPart {
     // ELARA: see `Overview`.
     #[knuffel(child, unwrap(argument))]
     pub backdrop_image: Option<String>,
+    #[knuffel(child)]
+    pub backdrop_wallpaper: Option<Flag>,
     #[knuffel(child, unwrap(argument))]
     pub backdrop_blur: Option<FloatOrInt<0, 1000>>,
     #[knuffel(child, unwrap(argument))]
@@ -184,6 +190,7 @@ impl MergeWith<OverviewPart> for Overview {
             zoom,
             workspace_shadow,
             window_thumbnails,
+            backdrop_wallpaper,
             backdrop_blur,
             window_opacity,
             workspace_corner_radius

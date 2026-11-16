@@ -1693,6 +1693,7 @@ mod tests {
                 },
                 window_thumbnails: false,
                 backdrop_image: None,
+                backdrop_wallpaper: false,
                 backdrop_blur: 0.0,
                 window_opacity: 1.0,
                 workspace_corner_radius: 0.0,

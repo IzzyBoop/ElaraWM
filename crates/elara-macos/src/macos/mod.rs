@@ -49,6 +49,17 @@ pub fn displays_have_separate_spaces() -> Option<bool> {
     Some(!spans)
 }
 
+/// Returns the file of the desktop picture that the system shows on `display`, if it says.
+/// This needs no permission.
+///
+/// # Panics
+///
+/// Panics if called from a thread other than the main thread.
+pub fn desktop_picture(display: crate::DisplayId) -> Option<std::path::PathBuf> {
+    let mtm = MainThreadMarker::new().expect("screens must be asked about on the main thread");
+    display::wallpaper(mtm, display)
+}
+
 /// Lists the connected displays, primary first. This needs no permission.
 ///
 /// # Panics

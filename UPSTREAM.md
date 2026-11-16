@@ -40,7 +40,7 @@ Whole directories are listed once; every file in them is verbatim unless named s
 | `crates/niri-config/` | `niri-config/` | verbatim |
 | `crates/niri-config/Cargo.toml` | `niri-config/Cargo.toml` | modified: explicit version, Smithay stand-in, clippy allowances |
 | `crates/niri-config/src/lib.rs` | `niri-config/src/lib.rs` | modified: path to the default config; `window_thumbnails` in the parse snapshot |
-| `crates/niri-config/src/misc.rs` | `niri-config/src/misc.rs` | modified: `window-thumbnails`, `backdrop-image`, `backdrop-blur`, `window-opacity` and `workspace-corner-radius` added to the `overview` section, which is no longer `Copy` |
+| `crates/niri-config/src/misc.rs` | `niri-config/src/misc.rs` | modified: `window-thumbnails`, `backdrop-wallpaper`, `backdrop-image`, `backdrop-blur`, `window-opacity` and `workspace-corner-radius` added to the `overview` section, which is no longer `Copy` |
 | `crates/niri-config/tests/wiki-parses.rs` | `niri-config/tests/wiki-parses.rs` | modified: path to the wiki |
 | `crates/elara-layout/src/animation/` | `src/animation/` | verbatim |
 | `crates/elara-layout/src/layout/` | `src/layout/` | verbatim, tests included |

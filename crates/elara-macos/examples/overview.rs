@@ -9,10 +9,10 @@
 //! then the pixels as bytes of red, green, blue and alpha. `--show` covers every display with
 //! the same picture and prints what is clicked and scrolled on it. Add `--pid <pid>` to
 //! either to draw the icon of that process on the cards, `--backdrop <image>` to show an
-//! image behind the workspaces, `--blur <points>` to blur it, and `--opacity <0 to 1>` to
-//! make the windows see-through, `--radius <points>` to round the corners of the workspaces
-//! and `--workspace-alpha <0 to 1>` to make their background see-through. Neither needs the
-//! Accessibility permission.
+//! image behind the workspaces (or `--backdrop desktop` for the desktop picture), `--blur <points>`
+//! to blur it, and `--opacity <0 to 1>` to make the windows see-through, `--radius <points>` to
+//! round the corners of the workspaces and `--workspace-alpha <0 to 1>` to make their background
+//! see-through. Neither needs the Accessibility permission.
 
 #[cfg(target_os = "macos")]
 fn main() {
@@ -20,9 +20,10 @@ fn main() {
     use std::time::{Duration, Instant};
 
     use elara_macos::{
-        displays, render_overview, run_main_loop, take_overview_input, BackdropImage, ColorSpace,
-        DisplayInfo, Gradient, HueInterpolation, Outline, Overview, OverviewDisplay, OverviewItem,
-        OverviewPanels, OverviewShadow, OverviewWindow, OverviewWorkspace, Rect, Wake, WindowId,
+        displays, render_overview, run_main_loop, take_overview_input, BackdropImage,
+        BackdropSource, ColorSpace, DisplayInfo, Gradient, HueInterpolation, Outline, Overview,
+        OverviewDisplay, OverviewItem, OverviewPanels, OverviewShadow, OverviewWindow,
+        OverviewWorkspace, Rect, Wake, WindowId,
     };
 
     // Three workspaces at half size, as niri's default zoom shows them: the one in the
@@ -131,8 +132,13 @@ fn main() {
         overview
     };
     let sample = |display: &DisplayInfo| Overview {
+        // `--backdrop desktop` stands for the desktop picture.
         backdrop_image: backdrop.as_ref().map(|path| BackdropImage {
-            path: path.into(),
+            source: if path == "desktop" {
+                BackdropSource::DesktopPicture
+            } else {
+                BackdropSource::File(path.into())
+            },
             blur: blur.unwrap_or(0.),
         }),
         window_opacity: opacity.unwrap_or(1.),

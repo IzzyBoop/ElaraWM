@@ -13,9 +13,10 @@ use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    BackdropImage, ColorSpace, DisplayId, DisplayInfo, Event, Ghost, Gradient, HueInterpolation,
-    Outline, Overview, OverviewDisplay, OverviewItem, OverviewShadow, OverviewWindow,
-    OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+    BackdropImage, BackdropSource, ColorSpace, DisplayId, DisplayInfo, Event, Ghost, Gradient,
+    HueInterpolation, Outline, Overview, OverviewDisplay, OverviewItem, OverviewShadow,
+    OverviewWindow, OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend, WindowId,
+    WindowInfo, WindowKind,
 };
 use niri_config::{Config, GradientColorSpace, GradientInterpolation, OutputName};
 use niri_ipc::{PositionChange, SizeChange};
@@ -1471,12 +1472,19 @@ impl<B: WindowBackend> State<B> {
 
         Some(Overview {
             backdrop: self.config.overview.backdrop_color.to_array_unpremul(),
-            backdrop_image: self.config.overview.backdrop_image.as_deref().map(|path| {
-                BackdropImage {
-                    path: expand_home(path),
-                    blur: self.config.overview.backdrop_blur,
-                }
-            }),
+            backdrop_image: {
+                let overview = &self.config.overview;
+                // A file named in the config comes before the desktop picture.
+                let source = match &overview.backdrop_image {
+                    Some(path) => Some(BackdropSource::File(expand_home(path))),
+                    None if overview.backdrop_wallpaper => Some(BackdropSource::DesktopPicture),
+                    None => None,
+                };
+                source.map(|source| BackdropImage {
+                    source,
+                    blur: overview.backdrop_blur,
+                })
+            },
             window_opacity: self.config.overview.window_opacity as f32,
             // The pictures are never shown larger than the overview is zoomed when open.
             thumbnails: self.config.overview.window_thumbnails.then_some(full),

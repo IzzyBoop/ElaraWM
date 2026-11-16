@@ -390,9 +390,10 @@ window-rule {
 // Without the permission, or with this commented out, the overview shows each window
 // as a card with its application's icon and its title.
 //
-// Four more settings can go in this section, all ElaraWM's own:
-//     backdrop-image "~/Pictures/wallpaper.jpg"   an image behind the workspaces
-//     backdrop-blur 20                            how far to blur that image
+// Five more settings can go in this section, all ElaraWM's own:
+//     backdrop-wallpaper                          your macOS wallpaper behind the workspaces
+//     backdrop-image "~/Pictures/wallpaper.jpg"   or an image of your choice
+//     backdrop-blur 20                            how far to blur either of them
 //     window-opacity 0.9                          how solid the windows are, 0 to 1
 //     workspace-corner-radius 16                  rounds the corners of the workspaces
 // To let the image show through the workspaces, give `background-color` in the
