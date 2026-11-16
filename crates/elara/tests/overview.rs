@@ -9,8 +9,9 @@ use elara::pointer::PointerInput;
 use elara::scroll::{ScrollHandler, ScrollInput};
 use elara::State;
 use elara_macos::{
-    KeyEvent, KeyModifiers, MockBackend, MouseButton, MouseEvent, MouseEventKind, Overview,
-    OverviewItem, OverviewWindow, Point, Rect, ScrollEvent, ScrollPhase, WindowBackend, WindowId,
+    BackdropSource, KeyEvent, KeyModifiers, MockBackend, MouseButton, MouseEvent, MouseEventKind,
+    Overview, OverviewItem, OverviewWindow, Point, Rect, ScrollEvent, ScrollPhase, WindowBackend,
+    WindowId,
 };
 use niri_config::{Action, Config};
 
@@ -474,10 +475,8 @@ fn the_config_sets_an_image_behind_the_workspaces_and_how_solid_the_windows_are(
     state.set_config(config);
     state.tick();
     let image = overview(&state).backdrop_image.clone().expect("an image");
-    assert_eq!(
-        image.path,
-        std::path::Path::new("/Library/Pictures/hills.jpg")
-    );
+    let file = BackdropSource::File("/Library/Pictures/hills.jpg".into());
+    assert_eq!(image.source, file);
     assert_eq!(image.blur, 20.);
     assert_eq!(overview(&state).window_opacity, 0.8);
 }
@@ -493,10 +492,8 @@ fn a_backdrop_image_under_the_home_directory_can_be_named_with_a_tilde() {
 
     let image = overview(&state).backdrop_image.clone().expect("an image");
     let home = std::env::var_os("HOME").expect("a home directory");
-    assert_eq!(
-        image.path,
-        std::path::Path::new(&home).join("Pictures/hills.jpg")
-    );
+    let file = std::path::Path::new(&home).join("Pictures/hills.jpg");
+    assert_eq!(image.source, BackdropSource::File(file));
     // Sharp unless the config says otherwise.
     assert_eq!(image.blur, 0.);
 }
@@ -544,4 +541,25 @@ fn workspaces_are_square_unless_the_config_rounds_them() {
     assert!(workspaces
         .iter()
         .all(|workspace| workspace.corner_radius == 0.));
+}
+
+#[test]
+fn the_backdrop_can_be_the_desktop_picture() {
+    let (mut state, _) = two_workspaces();
+    let config = Config::parse_mem("overview {\n backdrop-wallpaper\n backdrop-blur 12\n}");
+    state.set_config(config.unwrap());
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+    let image = overview(&state).backdrop_image.clone().expect("an image");
+    assert_eq!(image.source, BackdropSource::DesktopPicture);
+    assert_eq!(image.blur, 12.);
+
+    // A file named in the config comes first.
+    let config = Config::parse_mem(
+        "overview {\n backdrop-wallpaper\n backdrop-image \"/Library/Pictures/hills.jpg\"\n}",
+    );
+    state.set_config(config.unwrap());
+    state.tick();
+    let image = overview(&state).backdrop_image.clone().expect("an image");
+    assert!(matches!(image.source, BackdropSource::File(_)), "{image:?}");
 }

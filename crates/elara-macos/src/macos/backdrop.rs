@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use objc2::AnyThread;
+use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::NSImage;
 use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
@@ -17,7 +17,8 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::NSString;
 
-use crate::{box_blur, BackdropImage, DisplayId, DisplayInfo};
+use super::display::wallpaper;
+use crate::{box_blur, BackdropImage, BackdropSource, DisplayId, DisplayInfo};
 
 /// How large, in pixels, the blur is made to be in the copy of the image that is blurred.
 /// A blur hides detail, so a wide one can be done on a small copy and shown enlarged, which
@@ -29,7 +30,9 @@ struct Loaded {
     wanted: BackdropImage,
     /// The size of the display in pixels.
     size: (usize, usize),
-    /// When the file was last changed, as of when it was read.
+    /// The file the image was read from, if there was one to read.
+    path: Option<PathBuf>,
+    /// When that file was last changed, as of when it was read.
     modified: Option<SystemTime>,
     /// `None` if the file could not be read.
     image: Option<CFRetained<CGImage>>,
@@ -40,8 +43,16 @@ pub(super) struct Backdrops {
     loaded: HashMap<DisplayId, Loaded>,
 }
 
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).ok()?.modified().ok()
+fn modified(path: Option<&Path>) -> Option<SystemTime> {
+    std::fs::metadata(path?).ok()?.modified().ok()
+}
+
+/// The file that `source` stands for on `display`.
+fn resolve(mtm: MainThreadMarker, display: DisplayId, source: &BackdropSource) -> Option<PathBuf> {
+    match source {
+        BackdropSource::File(path) => Some(path.clone()),
+        BackdropSource::DesktopPicture => wallpaper(mtm, display),
+    }
 }
 
 impl Backdrops {
@@ -51,11 +62,14 @@ impl Backdrops {
         }
     }
 
-    /// Forgets the backdrops whose files have changed since they were read. For calling
-    /// when the overview opens, so that a new picture under the old name is picked up.
-    pub(super) fn forget_changed(&mut self) {
-        self.loaded
-            .retain(|_, loaded| modified(&loaded.wanted.path) == loaded.modified);
+    /// Forgets the backdrops whose files have changed since they were read, or that would
+    /// now be read from another file. For calling when the overview opens, so that a new
+    /// picture under the old name, or a new desktop picture, is picked up.
+    pub(super) fn forget_changed(&mut self, mtm: MainThreadMarker) {
+        self.loaded.retain(|display, loaded| {
+            let path = resolve(mtm, *display, &loaded.wanted.source);
+            path == loaded.path && modified(path.as_deref()) == loaded.modified
+        });
     }
 
     /// Forgets the backdrops of displays that are not among `displays`.
@@ -68,6 +82,7 @@ impl Backdrops {
     /// done for this display, image and blur.
     pub(super) fn get(
         &mut self,
+        mtm: MainThreadMarker,
         display: &DisplayInfo,
         wanted: &BackdropImage,
     ) -> Option<CFRetained<CGImage>> {
@@ -78,16 +93,21 @@ impl Backdrops {
             }
         }
 
-        let modified = modified(&wanted.path);
-        let image = render(&wanted.path, size, wanted.blur * display.scale);
+        let path = resolve(mtm, display.id, &wanted.source);
+        let modified = modified(path.as_deref());
+        let image = path
+            .as_deref()
+            .and_then(|path| render(path, size, wanted.blur * display.scale));
         if image.is_none() {
-            warn!(path = ?wanted.path, "could not read the overview's backdrop image");
+            // The path is left out: it is under the home directory more often than not.
+            warn!(source = ?kind(&wanted.source), "could not read the overview's backdrop image");
         }
         self.loaded.insert(
             display.id,
             Loaded {
                 wanted: wanted.clone(),
                 size,
+                path,
                 modified,
                 image: image.clone(),
             },
@@ -169,12 +189,18 @@ pub(super) fn render(path: &Path, size: (usize, usize), blur: f64) -> Option<CFR
 
 /// Returns `wanted` as it shows on `display`, without keeping it. For drawing once.
 pub(super) fn render_for(
+    mtm: MainThreadMarker,
     display: &DisplayInfo,
     wanted: &BackdropImage,
 ) -> Option<CFRetained<CGImage>> {
-    render(
-        &wanted.path,
-        pixel_size(display),
-        wanted.blur * display.scale,
-    )
+    let path = resolve(mtm, display.id, &wanted.source)?;
+    render(&path, pixel_size(display), wanted.blur * display.scale)
+}
+
+/// What sort of source this is, for the log.
+fn kind(source: &BackdropSource) -> &'static str {
+    match source {
+        BackdropSource::File(_) => "file",
+        BackdropSource::DesktopPicture => "desktop picture",
+    }
 }

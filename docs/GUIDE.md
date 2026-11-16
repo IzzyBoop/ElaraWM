@@ -159,12 +159,13 @@ config over unchanged: settings that don't apply on macOS are ignored rather tha
 
 ### Added by ElaraWM
 
-Five settings, all in the `overview` section:
+Six settings, all in the `overview` section:
 
 ```kdl
 overview {
     window-thumbnails
-    backdrop-image "~/Pictures/wallpaper.jpg"
+    backdrop-wallpaper
+    // backdrop-image "~/Pictures/wallpaper.jpg"
     backdrop-blur 20
     window-opacity 0.9
     workspace-corner-radius 16
@@ -175,11 +176,17 @@ overview {
   during workspace switches (see [The menu bar limit](#the-menu-bar-limit)). It requires
   the Screen Recording permission. It's enabled in the config ElaraWM creates and disabled
   if you leave it out.
-- **`backdrop-image`** shows an image behind the workspaces, in place of `backdrop-color`.
+- **`backdrop-wallpaper`** shows your current macOS wallpaper behind the workspaces, in
+  place of `backdrop-color`. Each display uses its own wallpaper, and a change of wallpaper
+  is picked up the next time you open the overview. It needs no extra permission. Two
+  limits: a wallpaper that changes through the day is shown as its first image, and for
+  video wallpapers or a solid color macOS may not report a picture at all, in which case
+  the backdrop color is shown.
+- **`backdrop-image`** shows an image of your choice instead. If both are set, this wins.
   The image is scaled to fill each display and cropped where its shape differs. Any format
   macOS can open works, including JPEG, PNG and HEIC. Use a full path, or one starting
   with `~/`. If the file can't be read, the backdrop color is shown instead.
-- **`backdrop-blur`** blurs the backdrop image. The value is the blur radius in points;
+- **`backdrop-blur`** blurs the backdrop, whether it's your wallpaper or an image. The value is the blur radius in points;
   `0`, the default, leaves the image sharp.
 - **`window-opacity`** sets how solid windows appear in the overview, from `0` (invisible)
   to `1` (the default, fully solid).

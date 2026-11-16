@@ -65,6 +65,10 @@ fn main() {
             d.refresh_mhz
                 .map_or("?".to_owned(), |mhz| (mhz / 1000).to_string()),
         );
+        match elara_macos::desktop_picture(d.id) {
+            Some(path) => println!("    desktop picture: {}", path.display()),
+            None => println!("    desktop picture: the system names none"),
+        }
     }
 
     let backend = match MacBackend::new() {

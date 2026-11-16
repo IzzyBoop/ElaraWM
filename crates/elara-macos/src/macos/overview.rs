@@ -686,7 +686,7 @@ impl OverviewPanels {
         self.backdrops.retain(displays);
         if !self.shown {
             // The file may have been replaced since the overview was last open.
-            self.backdrops.forget_changed();
+            self.backdrops.forget_changed(self.mtm);
         }
 
         CATransaction::begin();
@@ -717,7 +717,7 @@ impl OverviewPanels {
             let backdrop_image = overview
                 .backdrop_image
                 .as_ref()
-                .and_then(|image| self.backdrops.get(display, image));
+                .and_then(|image| self.backdrops.get(self.mtm, display, image));
             let look = Look {
                 backdrop: overview.backdrop,
                 backdrop_image,
@@ -782,7 +782,7 @@ pub fn render_overview(
     let backdrop_image = overview
         .backdrop_image
         .as_ref()
-        .and_then(|image| render_for(display, image));
+        .and_then(|image| render_for(mtm, display, image));
     let look = Look {
         backdrop: overview.backdrop,
         backdrop_image,

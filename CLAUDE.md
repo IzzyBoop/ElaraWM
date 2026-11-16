@@ -22,9 +22,10 @@ Wayland/Smithay backend.
   arranged as they will be when it closes. By default there is no screen capture, so no
   extra permission. `window-thumbnails` in the `overview` section, an addition to niri's
   config, has the cards show pictures of the windows, taken with ScreenCaptureKit; that
-  needs the Screen Recording permission, and without it the cards stay. Four more
-  additions there: `backdrop-image` (an image behind the workspaces), `backdrop-blur`,
-  `window-opacity` and `workspace-corner-radius`.
+  needs the Screen Recording permission, and without it the cards stay. Five more
+  additions there: `backdrop-wallpaper` (the macOS desktop picture behind the workspaces),
+  `backdrop-image` (a file instead), `backdrop-blur`, `window-opacity` and
+  `workspace-corner-radius`.
 - macOS lets no window go above the menu bar, so the windows of a workspace sliding in from
   above or out at the top are kept out of sight while their place is partly up there. With
   `window-thumbnails` on, a picture of each is drawn in its place (`Ghost` in `elara-macos`),
