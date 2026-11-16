@@ -1398,6 +1398,9 @@ impl<B: WindowBackend> State<B> {
                     workspaces.push(OverviewWorkspace {
                         rect,
                         color: ws.background_color().to_array_unpremul(),
+                        // Square while the workspace fills the display, and as round
+                        // as the config says once the overview is open.
+                        corner_radius: self.config.overview.workspace_corner_radius * progress,
                         shadow: (!shadow.off).then_some(OverviewShadow {
                             offset: (shadow.offset.x.0 * norm, shadow.offset.y.0 * norm),
                             softness: shadow.softness * norm,

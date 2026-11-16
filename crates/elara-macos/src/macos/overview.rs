@@ -471,6 +471,8 @@ impl Scene {
         for (layer, workspace) in self.workspaces.iter().zip(workspaces) {
             layer.setFrame(local(workspace.rect));
             layer.setBackgroundColor(Some(&cg_color(workspace.color)));
+            let rect = workspace.rect;
+            layer.setCornerRadius(workspace.corner_radius.clamp(0., rect.w.min(rect.h) / 2.));
             match workspace.shadow {
                 Some(shadow) => {
                     let [r, g, b, a] = shadow.color;

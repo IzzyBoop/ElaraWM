@@ -506,3 +506,42 @@ fn settings_out_of_range_are_an_error_in_the_config() {
     assert!(Config::parse_mem("overview {\n window-opacity 1.5\n}").is_err());
     assert!(Config::parse_mem("overview {\n backdrop-blur -3\n}").is_err());
 }
+
+#[test]
+fn workspaces_can_have_round_corners_and_a_see_through_background() {
+    let (mut state, _) = two_workspaces();
+    let config = Config::parse_mem(
+        r##"
+        animations { off; }
+        layout { background-color "#25273a80"; }
+        overview { workspace-corner-radius 24; }
+        "##,
+    )
+    .unwrap();
+    state.set_config(config);
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+
+    let workspaces = &overview(&state).displays[0].workspaces;
+    assert!(!workspaces.is_empty());
+    for workspace in workspaces {
+        // As round as the config says once the overview is open.
+        assert_eq!(workspace.corner_radius, 24.);
+        // niri's own setting for the background takes an opacity, which is kept.
+        let [r, g, b, a] = workspace.color;
+        assert!((a - 128. / 255.).abs() < 0.01, "{a}");
+        assert!((r - 37. / 255.).abs() < 0.01 && (g - 39. / 255.).abs() < 0.01);
+        assert!((b - 58. / 255.).abs() < 0.01);
+    }
+}
+
+#[test]
+fn workspaces_are_square_unless_the_config_rounds_them() {
+    let (mut state, _) = two_workspaces();
+    state.do_action(Action::ToggleOverview);
+    state.tick();
+    let workspaces = &overview(&state).displays[0].workspaces;
+    assert!(workspaces
+        .iter()
+        .all(|workspace| workspace.corner_radius == 0.));
+}

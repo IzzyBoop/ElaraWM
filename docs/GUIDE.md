@@ -159,7 +159,7 @@ config over unchanged: settings that don't apply on macOS are ignored rather tha
 
 ### Added by ElaraWM
 
-Four settings, all in the `overview` section:
+Five settings, all in the `overview` section:
 
 ```kdl
 overview {
@@ -167,6 +167,7 @@ overview {
     backdrop-image "~/Pictures/wallpaper.jpg"
     backdrop-blur 20
     window-opacity 0.9
+    workspace-corner-radius 16
 }
 ```
 
@@ -183,13 +184,20 @@ overview {
 - **`window-opacity`** sets how solid windows appear in the overview, from `0` (invisible)
   to `1` (the default, fully solid).
 
+- **`workspace-corner-radius`** rounds the corners of the workspaces in the overview. The
+  value is the radius in points when the overview is fully open; the corners are square
+  while a workspace fills the display, and round off as the overview zooms out. The
+  default is `0`.
+
 The backdrop is only visible around the workspaces, because each workspace has its own
-background. To see the image through the workspaces as well, give them a transparent
-background with niri's own setting:
+background. To let the image show through the workspaces as well, give that background an
+opacity with niri's own `background-color` setting. It accepts any CSS color, so the last
+two digits of an eight-digit hex color set the opacity:
 
 ```kdl
 layout {
-    background-color "transparent"
+    background-color "#25273a80"    // about half see-through
+    // background-color "transparent"   // or fully see-through
 }
 ```
 

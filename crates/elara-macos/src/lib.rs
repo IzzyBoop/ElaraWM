@@ -240,6 +240,8 @@ pub struct OverviewDisplay {
 pub struct OverviewWorkspace {
     pub rect: Rect,
     pub color: [f32; 4],
+    /// How round its corners are.
+    pub corner_radius: f64,
     pub shadow: Option<OverviewShadow>,
 }
 
