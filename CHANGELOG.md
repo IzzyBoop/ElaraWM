@@ -5,14 +5,36 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
-## [Unreleased]
+## [0.2.2] - 2026-11-16
+
+A small release that changes what a new install looks like.
 
 ### Changed
 
 - **The default config now dresses the overview.** A config created by ElaraWM turns on
   the wallpaper backdrop with a blur of 16, window opacity of 0.85 and a workspace corner
-  radius of 16, alongside window previews. Existing configs are not touched; to get the
-  same look, copy the `overview` block from the guide.
+  radius of 16, alongside window previews:
+
+  ```kdl
+  overview {
+      window-thumbnails
+      backdrop-wallpaper
+      // backdrop-image "~/Pictures/wallpaper.jpg"
+      backdrop-blur 16
+      window-opacity 0.85
+      workspace-corner-radius 16
+  }
+  ```
+
+  Before, a new config only turned on window previews, and the overview had a plain grey
+  backdrop until you found the other settings.
+
+### Notes
+
+- Existing configs are not changed. If you already have a config and want this look, copy
+  the block above into it, replacing any `overview` block that is there.
+- To let the wallpaper show through the workspaces as well, give `background-color` in
+  the `layout` section an opacity, for example `"#25273acc"`.
 
 ## [0.2.1] - 2026-11-16
 
@@ -143,6 +165,7 @@ The first release. An early beta, in daily use on one Mac with a single display.
 - Opening, closing and resizing windows aren't animated.
 - Other applications' shadows, opacity and corner radius can't be changed.
 
+[0.2.2]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/IzzyBoop/ElaraWM/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/IzzyBoop/ElaraWM/releases/tag/v0.1.0

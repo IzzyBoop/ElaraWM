@@ -9,8 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-elara-layout = { version = "0.2.1", path = "../elara-layout" }
-elara-macos = { version = "0.2.1", path = "../elara-macos" }
+elara-layout = { version = "0.2.2", path = "../elara-layout" }
+elara-macos = { version = "0.2.2", path = "../elara-macos" }
 libc = "0.2.191"
 niri-config = { version = "26.4.0", path = "../niri-config" }
 niri-ipc = { version = "26.4.0", path = "../niri-ipc" }
