@@ -29,11 +29,12 @@ application as it builds today and that.
    If the decision is no, this item is dropped and the README stays as it is.
 
 4. **Permissions that survive an update.** macOS ties the Accessibility and Screen
-   Recording grants to the application's signature. Releases signed with one and the same
-   certificate should keep them from version to version, but this has not been tried on a
-   second Mac. Check it with two releases in a row, and write down in the README what was
-   seen. Every release must be signed with the same identity; an ad hoc signed one would
-   make every user grant the permissions again.
+   Recording grants to the application's signature. Updating from 0.1.0 to 0.2.0, both
+   signed with the same certificate, kept them: confirmed on the Mac the releases were
+   built on. Still to do: the same check on a second Mac, where the application arrives
+   as a download. Every release must be signed with the same identity; an ad hoc signed
+   one would make every user grant the permissions again, and so will the one release
+   that switches to a Developer ID.
 
 5. **Which Macs and which macOS.** The application is built for Apple silicon only, and
    has only been run on macOS 27, though its bundle declares macOS 14 as the minimum.
