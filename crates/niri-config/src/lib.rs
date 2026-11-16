@@ -1695,6 +1695,7 @@ mod tests {
                 backdrop_image: None,
                 backdrop_blur: 0.0,
                 window_opacity: 1.0,
+                workspace_corner_radius: 0.0,
             },
             environment: Environment(
                 [

@@ -10,8 +10,9 @@
 //! the same picture and prints what is clicked and scrolled on it. Add `--pid <pid>` to
 //! either to draw the icon of that process on the cards, `--backdrop <image>` to show an
 //! image behind the workspaces, `--blur <points>` to blur it, and `--opacity <0 to 1>` to
-//! make the windows see-through. Neither needs the Accessibility
-//! permission.
+//! make the windows see-through, `--radius <points>` to round the corners of the workspaces
+//! and `--workspace-alpha <0 to 1>` to make their background see-through. Neither needs the
+//! Accessibility permission.
 
 #[cfg(target_os = "macos")]
 fn main() {
@@ -38,6 +39,7 @@ fn main() {
             .map(|idx| OverviewWorkspace {
                 rect: Rect::new(x, middle + idx * (h + gap), w, h),
                 color: [0.25, 0.25, 0.25, 1.],
+                corner_radius: 0.,
                 shadow: Some(OverviewShadow {
                     offset: (0., 10. * zoom),
                     softness: 40. * zoom,
@@ -118,6 +120,16 @@ fn main() {
     let backdrop = value("--backdrop");
     let blur = value("--blur").and_then(|blur| blur.parse::<f64>().ok());
     let opacity = value("--opacity").and_then(|opacity| opacity.parse::<f32>().ok());
+    let radius = value("--radius").and_then(|radius| radius.parse::<f64>().ok());
+    let alpha = value("--workspace-alpha").and_then(|alpha| alpha.parse::<f32>().ok());
+    let sample = |display: &DisplayInfo| {
+        let mut overview = sample(display);
+        for workspace in overview.displays.iter_mut().flat_map(|d| &mut d.workspaces) {
+            workspace.corner_radius = radius.unwrap_or(0.);
+            workspace.color[3] = alpha.unwrap_or(1.);
+        }
+        overview
+    };
     let sample = |display: &DisplayInfo| Overview {
         backdrop_image: backdrop.as_ref().map(|path| BackdropImage {
             path: path.into(),

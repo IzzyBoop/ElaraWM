@@ -134,6 +134,9 @@ pub struct Overview {
     pub backdrop_blur: f64,
     // ELARA: how opaque the windows are in the overview, from 0 to 1.
     pub window_opacity: f64,
+    // ELARA: how round the corners of the workspaces are in the open overview, in logical
+    // pixels.
+    pub workspace_corner_radius: f64,
 }
 
 impl Default for Overview {
@@ -146,6 +149,7 @@ impl Default for Overview {
             backdrop_image: None,
             backdrop_blur: 0.,
             window_opacity: 1.,
+            workspace_corner_radius: 0.,
         }
     }
 }
@@ -169,6 +173,8 @@ pub struct OverviewPart {
     pub backdrop_blur: Option<FloatOrInt<0, 1000>>,
     #[knuffel(child, unwrap(argument))]
     pub window_opacity: Option<FloatOrInt<0, 1>>,
+    #[knuffel(child, unwrap(argument))]
+    pub workspace_corner_radius: Option<FloatOrInt<0, 1000>>,
 }
 
 impl MergeWith<OverviewPart> for Overview {
@@ -179,7 +185,8 @@ impl MergeWith<OverviewPart> for Overview {
             workspace_shadow,
             window_thumbnails,
             backdrop_blur,
-            window_opacity
+            window_opacity,
+            workspace_corner_radius
         );
         merge_clone!((self, part), backdrop_color);
         // ELARA: an empty path takes the image away again, as in a later `include`.
