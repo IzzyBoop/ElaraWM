@@ -70,6 +70,11 @@ struct Inner {
     /// For width and height: the last time the window took a size close to, but not, the
     /// one asked for, as what was asked and what it took. See [`learn_limits_on_axis()`].
     refusals: Cell<[Option<(i32, i32)>; 2]>,
+    /// Width over height, if the window keeps its shape whatever size it is asked for, as
+    /// a video player does.
+    aspect: Cell<Option<f64>>,
+    /// Whether it has been found out if the window keeps its shape.
+    shape_known: Cell<bool>,
 
     is_activated: Cell<bool>,
     is_active_in_column: Cell<bool>,
@@ -177,6 +182,8 @@ impl Window {
             min_size: Cell::new(limit),
             max_size: Cell::new(limit),
             refusals: Cell::new([None; 2]),
+            aspect: Cell::new(None),
+            shape_known: Cell::new(false),
             is_activated: Cell::new(false),
             is_active_in_column: Cell::new(true),
             is_floating: Cell::new(false),
@@ -270,7 +277,18 @@ impl Window {
         inner.last_request.set(Some(request));
         inner.frame.set(actual);
 
-        if inner.resizable {
+        if inner.resizable && inner.aspect.get().is_some() {
+            // A window that keeps its shape has no limits to learn: every answer that is
+            // not what was asked is its shape speaking. An answer far from a request that
+            // was already of its shape means the shape is no longer what it was, as when
+            // a player opens another video; it is found out again.
+            let (asked, got) = (size_of(request), size_of(actual));
+            let far = (got.w - asked.w).abs() > SIZE_STEP || (got.h - asked.h).abs() > SIZE_STEP;
+            if learn_limits && far {
+                inner.aspect.set(None);
+                inner.shape_known.set(false);
+            }
+        } else if inner.resizable {
             let asked = size_of(request);
             let got = size_of(actual);
             let mut min = inner.min_size.get();
@@ -309,6 +327,71 @@ impl Window {
                 inner.min_size.get(),
                 inner.max_size.get(),
             )
+    }
+
+    /// Whether the window's answer to a request looks like a smallest size, which is also
+    /// what a window that keeps its shape looks like when the side it goes by was asked
+    /// to be larger than the other allows. One more request tells the two apart; see
+    /// [`record_shape_probe()`](Self::record_shape_probe).
+    pub fn suspects_shape(&self, request: Rect, actual: Rect) -> bool {
+        let (asked, got) = (size_of(request), size_of(actual));
+        self.inner.resizable
+            && !self.inner.shape_known.get()
+            && (got.w > asked.w + SIZE_STEP || got.h > asked.h + SIZE_STEP)
+    }
+
+    /// The request that finds out whether the window keeps its shape: for half the size
+    /// asked for before, in both directions.
+    pub fn shape_probe(request: Rect) -> Rect {
+        let half = |length: f64| (length / 2.).round().max(120.);
+        Rect::new(request.x, request.y, half(request.w), half(request.h))
+    }
+
+    /// Records the window's answer to [`shape_probe()`](Self::shape_probe), having
+    /// answered `first` to the request before it.
+    ///
+    /// A window with a smallest size answers with that size again. One that keeps its
+    /// shape answers with a smaller size of the same shape, so what looked like a smallest
+    /// width or height has moved.
+    pub fn record_shape_probe(&self, request: Rect, first: Rect, answer: Rect) {
+        let inner = &self.inner;
+        let (asked, first, got) = (size_of(request), size_of(first), size_of(answer));
+        let moved =
+            |asked: i32, first: i32, got: i32| first > asked + SIZE_STEP && got < first - SIZE_STEP;
+        let keeps_shape = moved(asked.w, first.w, got.w) || moved(asked.h, first.h, got.h);
+        inner.shape_known.set(true);
+        if keeps_shape && got.w > 0 && got.h > 0 {
+            inner.aspect.set(Some(f64::from(got.w) / f64::from(got.h)));
+            // Whatever was taken for a limit before was the shape.
+            if inner.resizable {
+                inner.min_size.set(Size::default());
+                inner.max_size.set(Size::default());
+            }
+            inner.refusals.set([None; 2]);
+            inner.settled_for.set(None);
+        }
+    }
+
+    /// Whether the window keeps its shape whatever size it is asked for.
+    pub fn keeps_shape(&self) -> bool {
+        self.inner.aspect.get().is_some()
+    }
+
+    /// Returns `frame` as the window can take it: for a window that keeps its shape, the
+    /// largest size of that shape that fits in it, at the same place. Asked for anything
+    /// else, such a window picks a size by a rule of its own, which may be far larger.
+    pub fn fit(&self, frame: Rect) -> Rect {
+        let Some(ratio) = self.inner.aspect.get() else {
+            return frame;
+        };
+        if frame.w <= 0. || frame.h <= 0. {
+            return frame;
+        }
+        if frame.w / frame.h > ratio {
+            Rect::new(frame.x, frame.y, (frame.h * ratio).round(), frame.h)
+        } else {
+            Rect::new(frame.x, frame.y, frame.w, (frame.w / ratio).round())
+        }
     }
 
     /// Records a frame the window took without being asked: the user dragged or resized it, or

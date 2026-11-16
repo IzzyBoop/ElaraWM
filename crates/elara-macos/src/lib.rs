@@ -34,7 +34,7 @@ pub use macos::{
     screen_recording_permitted, set_start_at_login, start_at_login, take_overview_input,
     HotkeyOverlayPanels, KeyTap, MacBackend, MenuBar, MenuCommand, Overlay, OverviewPanels, Wake,
 };
-pub use mock::MockBackend;
+pub use mock::{AspectFit, MockBackend};
 
 /// The modifier keys held during a key event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

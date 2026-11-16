@@ -244,7 +244,8 @@ niri follow from that.
 - Each application decides how quickly its window moves. Most keep up with the animations,
   but a busy application's window can briefly lag behind its focus ring.
 - An application can refuse a size. Terminals snap to whole rows and columns, some windows
-  have a minimum size, and some can't be resized at all. ElaraWM arranges the other windows
+  have a minimum size, video players such as QuickTime Player keep the shape of their
+  video, and some windows can't be resized at all. ElaraWM arranges the other windows
   around whatever size the window actually takes. Windows that can't be resized, and
   dialogs, float by default.
 
@@ -304,6 +305,9 @@ everything.
   notes this in its log at startup.
 - **A window that opens at its own size** may briefly appear at that size before it's
   placed.
+- **Video windows keep their shape.** A QuickTime Player window is as wide as its column
+  and as tall as its video's shape allows, which usually leaves empty space below it.
+  Resizing the column resizes the video with it.
 - **Stage Manager** hasn't been tested with ElaraWM.
 - **Multiple displays** are supported in the code (the monitor actions, per-display
   workspaces, plugging and unplugging) but have had very little real-world use.
