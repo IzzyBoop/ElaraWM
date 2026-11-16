@@ -8,7 +8,9 @@
 //! `--raster` puts nothing on screen. It writes a line with the width and height in pixels,
 //! then the pixels as bytes of red, green, blue and alpha. `--show` covers every display with
 //! the same picture and prints what is clicked and scrolled on it. Add `--pid <pid>` to
-//! either to draw the icon of that process on the cards. Neither needs the Accessibility
+//! either to draw the icon of that process on the cards, `--backdrop <image>` to show an
+//! image behind the workspaces, `--blur <points>` to blur it, and `--opacity <0 to 1>` to
+//! make the windows see-through. Neither needs the Accessibility
 //! permission.
 
 #[cfg(target_os = "macos")]
@@ -17,8 +19,8 @@ fn main() {
     use std::time::{Duration, Instant};
 
     use elara_macos::{
-        displays, render_overview, run_main_loop, take_overview_input, ColorSpace, DisplayInfo,
-        Gradient, HueInterpolation, Outline, Overview, OverviewDisplay, OverviewItem,
+        displays, render_overview, run_main_loop, take_overview_input, BackdropImage, ColorSpace,
+        DisplayInfo, Gradient, HueInterpolation, Outline, Overview, OverviewDisplay, OverviewItem,
         OverviewPanels, OverviewShadow, OverviewWindow, OverviewWorkspace, Rect, Wake, WindowId,
     };
 
@@ -87,6 +89,8 @@ fn main() {
 
         Overview {
             backdrop: [0.15, 0.15, 0.15, 1.],
+            backdrop_image: None,
+            window_opacity: 1.,
             thumbnails: None,
             displays: vec![OverviewDisplay {
                 display: display.id,
@@ -103,6 +107,25 @@ fn main() {
         args.drain(at..(at + 2).min(args.len()));
     }
     let pid_of = move |_: WindowId| pid;
+
+    // What a flag is followed by, with both taken out of the arguments.
+    let mut value = |flag: &str| {
+        let at = args.iter().position(|arg| arg == flag)?;
+        let value = args.get(at + 1).cloned();
+        args.drain(at..(at + 2).min(args.len()));
+        value
+    };
+    let backdrop = value("--backdrop");
+    let blur = value("--blur").and_then(|blur| blur.parse::<f64>().ok());
+    let opacity = value("--opacity").and_then(|opacity| opacity.parse::<f32>().ok());
+    let sample = |display: &DisplayInfo| Overview {
+        backdrop_image: backdrop.as_ref().map(|path| BackdropImage {
+            path: path.into(),
+            blur: blur.unwrap_or(0.),
+        }),
+        window_opacity: opacity.unwrap_or(1.),
+        ..sample(display)
+    };
 
     let displays = displays();
     let primary = displays.first().expect("no display").clone();

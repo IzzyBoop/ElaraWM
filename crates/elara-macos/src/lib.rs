@@ -14,6 +14,7 @@
 #[macro_use]
 extern crate tracing;
 
+mod blur;
 mod geometry;
 mod gradient;
 #[cfg(target_os = "macos")]
@@ -22,6 +23,7 @@ mod mock;
 
 use std::fmt;
 
+pub use blur::box_blur;
 pub use geometry::{Point, Rect, Size};
 pub use gradient::{ColorSpace, Gradient, HueInterpolation};
 #[cfg(target_os = "macos")]
@@ -184,16 +186,43 @@ impl Outline {
 /// is a picture: it covers each display, and on it every window is drawn as a card, in the
 /// place and at the size the zoomed-out window would have. The real windows stay where they
 /// are, underneath.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Overview {
     /// What shows behind the workspaces: red, green, blue and opacity, as in [`Outline`].
     pub backdrop: [f32; 4],
+    /// An image to show behind the workspaces, over the backdrop color. If it cannot be
+    /// read, the color shows.
+    pub backdrop_image: Option<BackdropImage>,
+    /// How opaque the windows are, cards and pictures alike, from 0 to 1.
+    pub window_opacity: f32,
     /// Whether to show a picture of each window in place of its card, and how large to take
     /// the pictures: this many times the size of the window. Taking them needs the Screen
     /// Recording permission; a window there is no picture of keeps its card.
     pub thumbnails: Option<f64>,
     /// What to draw on each display. A display that is not listed shows only the backdrop.
     pub displays: Vec<OverviewDisplay>,
+}
+
+impl Default for Overview {
+    fn default() -> Self {
+        Self {
+            backdrop: [0.; 4],
+            backdrop_image: None,
+            window_opacity: 1.,
+            thumbnails: None,
+            displays: Vec::new(),
+        }
+    }
+}
+
+/// The image behind the workspaces of the overview. It fills each display, cut off at the
+/// sides or at top and bottom where the display has another shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackdropImage {
+    /// The file, in any format the system reads.
+    pub path: std::path::PathBuf,
+    /// How far to blur the image, in points. Zero leaves it as it is.
+    pub blur: f64,
 }
 
 /// The part of the overview that one display shows. All coordinates are global.

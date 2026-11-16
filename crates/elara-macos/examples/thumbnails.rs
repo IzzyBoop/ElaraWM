@@ -69,6 +69,8 @@ fn main() {
     let windows = items.len();
     let overview = Overview {
         backdrop: [0.15, 0.15, 0.15, 1.],
+        backdrop_image: None,
+        window_opacity: 1.,
         thumbnails: Some(zoom),
         displays: vec![OverviewDisplay {
             display: display.id,

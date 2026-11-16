@@ -159,17 +159,39 @@ config over unchanged: settings that don't apply on macOS are ignored rather tha
 
 ### Added by ElaraWM
 
-One setting, in the `overview` section:
+Four settings, all in the `overview` section:
 
 ```kdl
 overview {
     window-thumbnails
+    backdrop-image "~/Pictures/wallpaper.jpg"
+    backdrop-blur 20
+    window-opacity 0.9
 }
 ```
 
-It shows window previews in the overview instead of cards, and during workspace switches
-(see [The menu bar limit](#the-menu-bar-limit)). It requires the Screen Recording
-permission. It's enabled in the config ElaraWM creates and disabled if you leave it out.
+- **`window-thumbnails`** shows window previews in the overview instead of cards, and
+  during workspace switches (see [The menu bar limit](#the-menu-bar-limit)). It requires
+  the Screen Recording permission. It's enabled in the config ElaraWM creates and disabled
+  if you leave it out.
+- **`backdrop-image`** shows an image behind the workspaces, in place of `backdrop-color`.
+  The image is scaled to fill each display and cropped where its shape differs. Any format
+  macOS can open works, including JPEG, PNG and HEIC. Use a full path, or one starting
+  with `~/`. If the file can't be read, the backdrop color is shown instead.
+- **`backdrop-blur`** blurs the backdrop image. The value is the blur radius in points;
+  `0`, the default, leaves the image sharp.
+- **`window-opacity`** sets how solid windows appear in the overview, from `0` (invisible)
+  to `1` (the default, fully solid).
+
+The backdrop is only visible around the workspaces, because each workspace has its own
+background. To see the image through the workspaces as well, give them a transparent
+background with niri's own setting:
+
+```kdl
+layout {
+    background-color "transparent"
+}
+```
 
 ### Settings that have no effect
 

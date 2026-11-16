@@ -1,6 +1,7 @@
 //! The window manager: niri's layout on one side, the system's windows on the other.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use elara_layout::animation::Clock;
@@ -12,9 +13,9 @@ use elara_layout::utils::transaction::Transaction;
 use elara_layout::utils::{get_monotonic_time, ResizeEdge};
 use elara_layout::window::{ResolvedWindowRules, WindowRef};
 use elara_macos::{
-    ColorSpace, DisplayId, DisplayInfo, Event, Ghost, Gradient, HueInterpolation, Outline,
-    Overview, OverviewDisplay, OverviewItem, OverviewShadow, OverviewWindow, OverviewWorkspace,
-    Point as GlobalPoint, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
+    BackdropImage, ColorSpace, DisplayId, DisplayInfo, Event, Ghost, Gradient, HueInterpolation,
+    Outline, Overview, OverviewDisplay, OverviewItem, OverviewShadow, OverviewWindow,
+    OverviewWorkspace, Point as GlobalPoint, Rect, WindowBackend, WindowId, WindowInfo, WindowKind,
 };
 use niri_config::{Config, GradientColorSpace, GradientInterpolation, OutputName};
 use niri_ipc::{PositionChange, SizeChange};
@@ -1467,6 +1468,13 @@ impl<B: WindowBackend> State<B> {
 
         Some(Overview {
             backdrop: self.config.overview.backdrop_color.to_array_unpremul(),
+            backdrop_image: self.config.overview.backdrop_image.as_deref().map(|path| {
+                BackdropImage {
+                    path: expand_home(path),
+                    blur: self.config.overview.backdrop_blur,
+                }
+            }),
+            window_opacity: self.config.overview.window_opacity as f32,
             // The pictures are never shown larger than the overview is zoomed when open.
             thumbnails: self.config.overview.window_thumbnails.then_some(full),
             displays,
@@ -1671,6 +1679,15 @@ fn scaled_outline(
         .map(|radius| f64::from(radius) * zoom),
         color: [from.r, from.g, from.b, from.a * parameters.alpha],
         gradient,
+    }
+}
+
+/// Returns the path a config names, with a leading `~` standing for the home directory.
+fn expand_home(path: &str) -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(path),
     }
 }
 

@@ -652,7 +652,8 @@ impl Options {
             layout: config.layout.clone(),
             animations: config.animations.clone(),
             gestures: config.gestures,
-            overview: config.overview,
+            // ELARA: cloned; the overview config holds a path here and is not `Copy`.
+            overview: config.overview.clone(),
             blur: config.blur,
             disable_resize_throttling: config.debug.disable_resize_throttling,
             disable_transactions: config.debug.disable_transactions,
