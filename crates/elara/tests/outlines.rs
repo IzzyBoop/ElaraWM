@@ -5,7 +5,7 @@ use elara::pointer::PointerInput;
 use elara::State;
 use elara_macos::{
     ColorSpace, HueInterpolation, MockBackend, MouseButton, Outline, Point, Rect, WindowBackend,
-    WindowId,
+    WindowId, WindowKind,
 };
 use niri_config::{Action, Config};
 
@@ -500,4 +500,48 @@ fn one_color_is_not_a_gradient() {
         r##"layout { focus-ring { active-gradient from="#ff0000" to="#ff0000"; }; }"##,
     ));
     assert_eq!(outlines(&state)[0].gradient, None);
+}
+
+#[test]
+fn a_dialog_the_system_does_not_focus_leaves_the_ring_where_it_is() {
+    // macOS shows the input source indicator, when the source is switched, as a small
+    // dialog of the application being typed in, and never gives it the keyboard.
+    let (mut state, [a, _b]) = two_columns(default_config());
+    state.backend_mut().user_focus(a);
+    state.tick();
+    let ring = outlines(&state);
+    assert_eq!(ring.len(), 1);
+
+    let indicator =
+        state
+            .backend_mut()
+            .open_window_with("a", "", Rect::new(233., 155., 144., 83.), |info| {
+                info.kind = WindowKind::Dialog
+            });
+    state.tick();
+    assert_eq!(outlines(&state), ring, "the ring moved to the indicator");
+    assert_eq!(state.layout().focus().map(|w| w.window_id()), Some(a));
+
+    state.backend_mut().close_window(indicator);
+    state.tick();
+    assert_eq!(outlines(&state), ring);
+}
+
+#[test]
+fn a_dialog_the_system_focuses_gets_the_ring() {
+    let (mut state, [a, _b]) = two_columns(default_config());
+    state.backend_mut().user_focus(a);
+    state.tick();
+
+    let spot = Rect::new(500., 400., 420., 260.);
+    let dialog = state
+        .backend_mut()
+        .open_window_with("a", "Save", spot, |info| info.kind = WindowKind::Dialog);
+    state.backend_mut().user_focus(dialog);
+    state.tick();
+
+    assert_eq!(state.layout().focus().map(|w| w.window_id()), Some(dialog));
+    let rings = outlines(&state);
+    assert_eq!(rings.len(), 1);
+    assert_eq!(rings[0].rect, around(spot, RING_WIDTH));
 }

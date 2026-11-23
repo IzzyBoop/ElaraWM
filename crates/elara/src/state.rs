@@ -527,6 +527,12 @@ impl<B: WindowBackend> State<B> {
         let activate = match rules.open_focused {
             Some(true) => ActivateWindow::Yes,
             Some(false) => ActivateWindow::No,
+            // A dialog takes the focus when the system gives it the keyboard, which is
+            // reported as a focus change, and not before. Some dialogs never get it: macOS
+            // shows the indicator of the input source, when that is switched, as a small
+            // dialog of the application being typed in. Focused on opening, it took the
+            // focus ring from the window being typed in for as long as it showed.
+            None if is_dialog && is_floating => ActivateWindow::No,
             None => ActivateWindow::Smart,
         };
         let is_full_width = rules.open_maximized.unwrap_or(false);

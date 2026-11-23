@@ -13,10 +13,12 @@ behavior.
   `Mod+Shift+F`, focusing the column to its left or right brought that column into view
   on top of the fullscreen window, which stayed where it was. It now slides out of the way
   with its column, and fills the screen again when you go back to it.
-- **The focus ring jumped when switching keyboard input sources.** Pressing fn (or another
-  shortcut) to change the input source made the focus ring jump to the small indicator
-  macOS shows, then back. ElaraWM no longer treats the system's own floating windows,
-  such as that indicator and input method candidate lists, as windows to manage.
+- **The focus ring jumped when switching keyboard input sources.** Pressing fn to change
+  the input source made the focus ring jump to the small indicator macOS shows, then back.
+  macOS presents that indicator as a small dialog of the app you're typing in, and ElaraWM
+  moved its focus to every new dialog as it opened. A dialog now gets the focus, and the
+  ring, only when macOS actually gives it the keyboard, as it does for real dialogs such as
+  Save.
 
 ## [0.2.2] - 2026-11-16
 
