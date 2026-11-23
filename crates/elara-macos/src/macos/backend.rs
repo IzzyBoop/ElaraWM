@@ -693,16 +693,30 @@ impl MacBackend {
 
     /// Re-reads which window has keyboard focus and reports a change.
     fn refresh_focus(&mut self) {
-        let focused = NSWorkspace::sharedWorkspace()
-            .frontmostApplication()
-            .map(|app| app.processIdentifier())
-            .and_then(|pid| {
-                let app = self.apps.get(&pid)?;
-                let element = ax::element(&app.element, ax::FOCUSED_WINDOW)?;
-                self.track_window(pid, element)
-            });
+        let frontmost = NSWorkspace::sharedWorkspace().frontmostApplication();
+        let pid = frontmost.as_ref().map(|app| app.processIdentifier());
+        let mut described = None;
+        let focused = pid.and_then(|pid| {
+            let app = self.apps.get(&pid)?;
+            let element = ax::element(&app.element, ax::FOCUSED_WINDOW)?;
+            described = Some((
+                ax::string(&element, ax::ROLE),
+                ax::string(&element, ax::SUBROLE),
+                ax::frame(&element).map(|f| (f.w, f.h)),
+            ));
+            self.track_window(pid, element)
+        });
 
         if focused != self.focused {
+            // What macOS says has focus, managed or not, to tell from a log what took it.
+            // No titles: they say what the user is reading.
+            debug!(
+                frontmost = ?frontmost.as_ref().and_then(|app| app.bundleIdentifier()).map(|id| id.to_string()),
+                observed = pid.is_some_and(|pid| self.apps.contains_key(&pid)),
+                window = ?described,
+                ?focused,
+                "focus changed"
+            );
             self.focused = focused;
             self.events.push(Event::FocusChanged(focused));
         }
