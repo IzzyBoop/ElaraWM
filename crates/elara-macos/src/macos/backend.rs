@@ -493,14 +493,9 @@ impl MacBackend {
         let subrole = ax::string(&element, ax::SUBROLE);
         let kind = match subrole.as_deref() {
             Some("AXStandardWindow") => WindowKind::Standard,
-            Some("AXDialog" | "AXSystemDialog" | "AXFloatingWindow") => WindowKind::Dialog,
-            // What the system puts up inside an application on its own account: the
-            // indicator of the input source that shows for a moment when it is switched,
-            // input method candidate lists. They are listed among the application's
-            // windows, and briefly have its focus, but they are not the user's windows.
-            // Taken for one, such a window was floated and given the focus ring, which
-            // jumped to it and back on every switch.
-            Some("AXSystemFloatingWindow") => WindowKind::Other,
+            Some("AXDialog" | "AXSystemDialog" | "AXFloatingWindow" | "AXSystemFloatingWindow") => {
+                WindowKind::Dialog
+            }
             _ => WindowKind::Other,
         };
         if kind == WindowKind::Other {
