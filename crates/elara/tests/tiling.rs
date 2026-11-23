@@ -747,3 +747,23 @@ fn a_video_window_resized_by_its_edge_can_be_made_wider_again() {
     assert_eq!(wide.w, before.w + 150.);
     assert!(has_shape(wide, ratio), "{wide:?}");
 }
+
+#[test]
+fn focusing_past_a_fullscreen_window_moves_it_out_of_the_way() {
+    let mut state = start(MockBackend::with_laptop_display());
+    let a = open(&mut state, "a");
+    let b = open(&mut state, "b");
+    state.do_action(Action::FocusColumnFirst);
+    state.do_action(Action::FullscreenWindow);
+    let full = frame(&state, a);
+
+    // To the window on its right: that one is shown, and the fullscreen one is not over it.
+    state.do_action(Action::FocusColumnRight);
+    let (now_a, now_b) = (frame(&state, a), frame(&state, b));
+    assert!(in_view(now_b), "{now_b:?}");
+    assert!(!now_a.intersects(&now_b), "a={now_a:?} b={now_b:?}");
+
+    // And back: the fullscreen window fills the screen again.
+    state.do_action(Action::FocusColumnLeft);
+    assert_eq!(frame(&state, a), full);
+}

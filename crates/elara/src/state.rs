@@ -891,7 +891,19 @@ impl<B: WindowBackend> State<B> {
                             any_response = true;
                         }
                         // Only where the size fit is another size the window's own choice.
-                        if resizing && learn_limits && size_of(actual) != size {
+                        // A size larger than the usable area, such as niri's fullscreen, is
+                        // cut down to that area by the system wherever it is asked for. Once
+                        // the window has all of it, that is as close as it gets: from then
+                        // on it is moved with the size it has, like a window that chose its
+                        // own. Asked for the size again, it would be put where the size
+                        // would fit, which is the one spot that fills the display, and stay
+                        // there over the neighbors that are scrolled into view.
+                        let most = (
+                            size.0.min(target.usable.w.round() as i32),
+                            size.1.min(target.usable.h.round() as i32),
+                        );
+                        let all_it_can = !learn_limits && size_of(actual) == most;
+                        if resizing && (learn_limits || all_it_can) && size_of(actual) != size {
                             window.set_settled_for(Some(size));
                             any_response = true;
                         } else if resizing && size_of(actual) == size {
