@@ -5,7 +5,9 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
-## [Unreleased]
+## [0.2.3] - 2026-11-23
+
+A bug-fix release for fullscreen windows and the focus ring.
 
 ### Fixed
 
@@ -180,6 +182,7 @@ The first release. An early beta, in daily use on one Mac with a single display.
 - Opening, closing and resizing windows aren't animated.
 - Other applications' shadows, opacity and corner radius can't be changed.
 
+[0.2.3]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/IzzyBoop/ElaraWM/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/IzzyBoop/ElaraWM/compare/v0.1.0...v0.2.0
