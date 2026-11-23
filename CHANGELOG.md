@@ -5,6 +5,19 @@ All notable changes to ElaraWM are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). While ElaraWM is at 0.x, any release may change
 behavior.
 
+## [Unreleased]
+
+### Fixed
+
+- **A fullscreen window stayed on screen when you moved to a neighbor.** After
+  `Mod+Shift+F`, focusing the column to its left or right brought that column into view
+  on top of the fullscreen window, which stayed where it was. It now slides out of the way
+  with its column, and fills the screen again when you go back to it.
+- **The focus ring jumped when switching keyboard input sources.** Pressing fn (or another
+  shortcut) to change the input source made the focus ring jump to the small indicator
+  macOS shows, then back. ElaraWM no longer treats the system's own floating windows,
+  such as that indicator and input method candidate lists, as windows to manage.
+
 ## [0.2.2] - 2026-11-16
 
 A small release that changes what a new install looks like.
